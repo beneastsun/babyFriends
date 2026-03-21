@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__filesystem*",
+      "mcp__filesystem__directory_tree",
+      "mcp__filesystem__list_directory",
+      "mcp__filesystem__read_text_file",
+      "mcp__filesystem__list_allowed_directories",
+      "Skill(planning-with-files:planning-with-files)",
+      "Skill(planning-with-files:planning-with-files:*)",
+      "mcp__ide__getDiagnostics",
+      "Bash(cd:*)",
+      "Bash(cmd.exe /c \"cd /d D:\\\\Developfile\\\\baby-friends\\\\qiaoqiao_companion && flutter doctor -v\")",
+      "Bash(cmd.exe /c \"cd /d D:\\\\Developfile\\\\baby-friends\\\\qiaoqiao_companion && if exist build rd /s /q build && if exist android\\\\.gradle rd /s /q android\\\\.gradle && if exist android\\\\app\\\\build rd /s /q android\\\\app\\\\build && echo 清理完成\")",
+      "Bash(powershell.exe -Command \"Set-Location 'D:\\\\Developfile\\\\baby-friends\\\\qiaoqiao_companion'; Remove-Item -Recurse -Force build -ErrorAction SilentlyContinue; Remove-Item -Recurse -Force 'android\\\\.gradle' -ErrorAction SilentlyContinue; Write-Host '清理完成'\")",
+      "Bash(powershell.exe -Command \"Get-ChildItem -Path 'C:\\\\','D:\\\\' -Filter 'flutter' -Directory -Recurse -ErrorAction SilentlyContinue -Depth 2 | Select-Object -First 5 FullName\")",
+      "Bash(powershell.exe -Command \"$flutterPath = 'C:\\\\flutter\\\\bin'; $currentPath = [Environment]::GetEnvironmentVariable\\('Path', 'User'\\); if \\($currentPath -notlike \\\\\"*$flutterPath*\\\\\"\\) { [Environment]::SetEnvironmentVariable\\('Path', \\\\\"$currentPath;$flutterPath\\\\\", 'User'\\); Write-Host 'Flutter 已添加到用户 PATH 环境变量' } else { Write-Host 'Flutter 已存在于 PATH 中' }\")",
+      "Bash(C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -ExecutionPolicy Bypass -Command \"[Environment]::SetEnvironmentVariable\\('Path', [Environment]::GetEnvironmentVariable\\('Path', 'User'\\) + ';C:\\\\flutter\\\\bin', 'User'\\); Write-Host 'Flutter PATH 设置完成'\")",
+      "Bash(setx:*)",
+      "Bash(C:/flutter/bin/flutter.bat clean:*)",
+      "Bash(C:/flutter/bin/flutter.bat pub:*)",
+      "Bash(export:*)",
+      "Bash(PUB_HOSTED_URL=\"https://pub.flutter-io.cn\" FLUTTER_STORAGE_BASE_URL=\"https://storage.flutter-io.cn\" C:/flutter/bin/flutter.bat build apk --release)",
+      "Bash(flutter clean:*)",
+      "Bash(flutter pub:*)",
+      "Bash(flutter run:*)"
+    ]
+  }
+}

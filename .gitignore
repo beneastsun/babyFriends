@@ -1,0 +1,17 @@
+# IDE
+.idea/
+
+# OMC
+.omc/
+
+# Screenshots (optional - remove if you want to track them)
+# screenshot*.png
+# test_screenshot*.png
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.log
