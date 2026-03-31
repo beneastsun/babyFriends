@@ -23,7 +23,10 @@
       "Bash(PUB_HOSTED_URL=\"https://pub.flutter-io.cn\" FLUTTER_STORAGE_BASE_URL=\"https://storage.flutter-io.cn\" C:/flutter/bin/flutter.bat build apk --release)",
       "Bash(flutter clean:*)",
       "Bash(flutter pub:*)",
-      "Bash(flutter run:*)"
+      "Bash(flutter run:*)",
+      "mcp__filesystem__write_file",
+      "Bash(flutter analyze:*)",
+      "Bash(flutter build:*)"
     ]
   }
 }
