@@ -1,10 +1,33 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/app_solid_colors.dart';
 import '../../providers/theme_provider.dart';
 
-/// 应用标签组件
-class AppChip extends ConsumerWidget {
+/// 标签类型 - Kawaii Dream 风格
+enum AppChipType {
+  /// 填充标签 - 纯色背景
+  filled,
+  /// 描边标签 - 边框样式
+  outlined,
+  /// 幽灵标签 - 透明背景
+  ghost,
+  /// 渐变标签 - 粉紫渐变
+  gradient,
+  /// 分类标签 - 根据分类自动变色
+  category,
+}
+
+/// 标签尺寸
+enum AppChipSize {
+  small,
+  medium,
+  large,
+}
+
+/// 应用标签组件 - Kawaii Dream 风格
+/// 特点：胶囊形状、选中动画、发光效果
+class AppChip extends ConsumerStatefulWidget {
   const AppChip({
     super.key,
     required this.label,
@@ -13,7 +36,11 @@ class AppChip extends ConsumerWidget {
     this.icon,
     this.onDeleted,
     this.isEnabled = true,
-    this.type = AppChipType.default_,
+    this.type = AppChipType.filled,
+    this.size = AppChipSize.medium,
+    this.category,
+    this.showGlow = false,
+    this.onTap,
   });
 
   final String label;
@@ -23,94 +50,307 @@ class AppChip extends ConsumerWidget {
   final VoidCallback? onDeleted;
   final bool isEnabled;
   final AppChipType type;
+  final AppChipSize size;
+  final String? category;
+  final bool showGlow;
+  final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final colors = ref.watch(colorSchemeProvider);
+  ConsumerState<AppChip> createState() => _AppChipState();
+}
 
-    return FilterChip(
-      label: Text(label),
-      selected: selected,
-      onSelected: isEnabled ? onSelected : null,
-      avatar: icon,
-      onDeleted: onDeleted,
-      backgroundColor: _getBackgroundColor(isDark, colors),
-      selectedColor: _getSelectedColor(isDark, colors),
-      disabledColor: isDark
-          ? AppColors.borderDark.withOpacity(0.5)
-          : AppColors.borderLight.withOpacity(0.5),
-      labelStyle: AppTextStyles.labelMedium.copyWith(
-        color: selected
-            ? Colors.white
-            : (isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight),
-      ),
-      side: BorderSide.none,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(DesignTokens.radiusCapsule),
+class _AppChipState extends ConsumerState<AppChip>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+  bool _isPressed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: AppAnimations.quick,
+      vsync: this,
+    );
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.95).animate(
+      CurvedAnimation(parent: _controller, curve: AppAnimations.elastic),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _handleTapDown(TapDownDetails details) {
+    if (!widget.isEnabled) return;
+    setState(() => _isPressed = true);
+    _controller.forward();
+  }
+
+  void _handleTapUp(TapUpDetails details) {
+    setState(() => _isPressed = false);
+    _controller.reverse();
+  }
+
+  void _handleTapCancel() {
+    setState(() => _isPressed = false);
+    _controller.reverse();
+  }
+
+  _ChipSizeConfig get _sizeConfig {
+    switch (widget.size) {
+      case AppChipSize.small:
+        return const _ChipSizeConfig(
+          height: 28,
+          paddingHorizontal: DesignTokens.space8,
+          fontSize: 12,
+          iconSize: 14,
+        );
+      case AppChipSize.medium:
+        return const _ChipSizeConfig(
+          height: 36,
+          paddingHorizontal: DesignTokens.space12,
+          fontSize: 14,
+          iconSize: 18,
+        );
+      case AppChipSize.large:
+        return const _ChipSizeConfig(
+          height: 44,
+          paddingHorizontal: DesignTokens.space16,
+          fontSize: 16,
+          iconSize: 20,
+        );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final themeType = ref.watch(themeTypeProvider);
+
+    return GestureDetector(
+      onTapDown: _handleTapDown,
+      onTapUp: _handleTapUp,
+      onTapCancel: _handleTapCancel,
+      onTap: () {
+        widget.onTap?.call();
+        if (widget.onSelected != null) {
+          widget.onSelected!(!widget.selected);
+        }
+      },
+      child: AnimatedBuilder(
+        animation: _scaleAnimation,
+        builder: (context, child) {
+          return Transform.scale(
+            scale: _scaleAnimation.value,
+            child: child,
+          );
+        },
+        child: AnimatedContainer(
+          duration: AppAnimations.quick,
+          curve: Curves.easeOutCubic,
+          height: _sizeConfig.height,
+          padding: EdgeInsets.symmetric(horizontal: _sizeConfig.paddingHorizontal),
+          decoration: _buildDecoration(isDark, themeType),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (widget.icon != null) ...[
+                IconTheme(
+                  data: IconThemeData(
+                    size: _sizeConfig.iconSize,
+                    color: _getIconColor(isDark, themeType),
+                  ),
+                  child: widget.icon!,
+                ),
+                const SizedBox(width: DesignTokens.space4),
+              ],
+              Text(
+                widget.label,
+                style: AppTextStyles.labelMedium.copyWith(
+                  fontSize: _sizeConfig.fontSize,
+                  color: _getTextColor(isDark, themeType),
+                  fontWeight:
+                      widget.selected ? FontWeight.w600 : FontWeight.w500,
+                ),
+              ),
+              if (widget.onDeleted != null) ...[
+                const SizedBox(width: DesignTokens.space4),
+                GestureDetector(
+                  onTap: widget.onDeleted,
+                  child: Icon(
+                    Icons.close_rounded,
+                    size: _sizeConfig.iconSize,
+                    color: _getTextColor(isDark, themeType).withOpacity(0.7),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  Color _getBackgroundColor(bool isDark, ColorSchemeConfig colors) {
-    if (selected) {
-      return isDark ? colors.primaryDark : colors.primary;
+  BoxDecoration _buildDecoration(bool isDark, AppThemeType themeType) {
+    final borderRadius = BorderRadius.circular(DesignTokens.radiusPill);
+    final primaryColor = AppSolidColors.getPrimaryColor(themeType, isDark);
+    final categoryColor = widget.category != null
+        ? AppSolidColors.getCategoryColor(widget.category!)
+        : primaryColor;
+
+    List<BoxShadow>? shadows;
+    if (widget.showGlow || widget.selected) {
+      final glowColor = widget.type == AppChipType.category
+          ? categoryColor
+          : primaryColor;
+      shadows = [
+        BoxShadow(
+          color: glowColor.withOpacity(0.3),
+          blurRadius: 8,
+          spreadRadius: 1,
+        ),
+      ];
     }
-    return isDark ? AppColors.surfaceDark : AppColors.surfaceLight;
+
+    switch (widget.type) {
+      case AppChipType.filled:
+        return BoxDecoration(
+          color: widget.selected
+              ? primaryColor
+              : primaryColor.withOpacity(0.15),
+          borderRadius: borderRadius,
+          boxShadow: shadows,
+        );
+
+      case AppChipType.outlined:
+        return BoxDecoration(
+          color: widget.selected
+              ? primaryColor.withOpacity(0.1)
+              : Colors.transparent,
+          borderRadius: borderRadius,
+          border: Border.all(
+            color: widget.selected
+                ? primaryColor
+                : primaryColor.withOpacity(0.5),
+            width: 1.5,
+          ),
+          boxShadow: shadows,
+        );
+
+      case AppChipType.ghost:
+        return BoxDecoration(
+          color: widget.selected
+              ? primaryColor.withOpacity(0.15)
+              : Colors.transparent,
+          borderRadius: borderRadius,
+          boxShadow: shadows,
+        );
+
+      case AppChipType.gradient:
+        if (widget.selected) {
+          return BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppSolidColors.getPrimaryColor(themeType, isDark),
+                AppSolidColors.getSecondaryColor(themeType, isDark),
+              ],
+            ),
+            borderRadius: borderRadius,
+            boxShadow: shadows,
+          );
+        }
+        return BoxDecoration(
+          color: Colors.transparent,
+          borderRadius: borderRadius,
+          border: Border.all(
+            color: primaryColor.withOpacity(0.3),
+            width: 1,
+          ),
+        );
+
+      case AppChipType.category:
+        return BoxDecoration(
+          color: widget.selected
+              ? categoryColor
+              : categoryColor.withOpacity(0.15),
+          borderRadius: borderRadius,
+          boxShadow: shadows,
+        );
+    }
   }
 
-  Color _getSelectedColor(bool isDark, ColorSchemeConfig colors) {
-    switch (type) {
-      case AppChipType.default_:
-        return isDark ? colors.primaryDark : colors.primary;
-      case AppChipType.success:
-        return AppColors.success;
-      case AppChipType.warning:
-        return AppColors.warning;
-      case AppChipType.error:
-        return AppColors.error;
+  Color _getTextColor(bool isDark, AppThemeType themeType) {
+    if (!widget.isEnabled) {
+      return isDark
+          ? AppColors.textHintDark.withOpacity(0.5)
+          : AppColors.textHintLight.withOpacity(0.5);
     }
+
+    final primaryColor = AppSolidColors.getPrimaryColor(themeType, isDark);
+    final categoryColor = widget.category != null
+        ? AppSolidColors.getCategoryColor(widget.category!)
+        : primaryColor;
+
+    switch (widget.type) {
+      case AppChipType.filled:
+      case AppChipType.gradient:
+      case AppChipType.category:
+        return widget.selected ? Colors.white : categoryColor;
+      case AppChipType.outlined:
+      case AppChipType.ghost:
+        return primaryColor;
+    }
+  }
+
+  Color _getIconColor(bool isDark, AppThemeType themeType) {
+    return _getTextColor(isDark, themeType);
   }
 }
 
-/// 标签类型
-enum AppChipType {
-  default_,
-  success,
-  warning,
-  error,
+class _ChipSizeConfig {
+  final double height;
+  final double paddingHorizontal;
+  final double fontSize;
+  final double iconSize;
+
+  const _ChipSizeConfig({
+    required this.height,
+    required this.paddingHorizontal,
+    required this.fontSize,
+    required this.iconSize,
+  });
 }
 
-/// 分类标签
-class CategoryChip extends StatelessWidget {
+/// 分类标签 - 根据分类自动变色
+class CategoryChip extends ConsumerWidget {
   const CategoryChip({
     super.key,
     required this.category,
     this.selected = false,
     this.onSelected,
+    this.size = AppChipSize.medium,
   });
 
   final String category;
   final bool selected;
   final ValueChanged<bool>? onSelected;
+  final AppChipSize size;
 
   @override
-  Widget build(BuildContext context) {
-    final categoryColor = AppColors.getCategoryColor(category);
-
-    return FilterChip(
-      label: Text(_getCategoryLabel(category)),
+  Widget build(BuildContext context, WidgetRef ref) {
+    return AppChip(
+      label: _getCategoryLabel(category),
+      category: category,
       selected: selected,
       onSelected: onSelected,
-      backgroundColor: categoryColor.withOpacity(0.15),
-      selectedColor: categoryColor,
-      labelStyle: AppTextStyles.labelMedium.copyWith(
-        color: selected ? Colors.white : categoryColor,
-      ),
-      side: BorderSide.none,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(DesignTokens.radiusCapsule),
-      ),
+      type: AppChipType.category,
+      size: size,
+      showGlow: selected,
     );
   }
 
@@ -125,52 +365,52 @@ class CategoryChip extends StatelessWidget {
       case 'reading':
         return '阅读';
       default:
-        return '其他';
+        return category;
     }
   }
 }
 
-/// 状态标签
-class StatusChip extends StatelessWidget {
+/// 状态标签 - 用于显示状态信息
+class StatusChip extends ConsumerWidget {
   const StatusChip({
     super.key,
     required this.label,
     required this.status,
-    this.icon,
+    this.size = AppChipSize.medium,
   });
 
   final String label;
   final ChipStatus status;
-  final IconData? icon;
+  final AppChipSize size;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: DesignTokens.space8,
-        vertical: DesignTokens.space4,
-      ),
+      height: _getHeight(),
+      padding: EdgeInsets.symmetric(horizontal: _getPadding()),
       decoration: BoxDecoration(
-        color: _getStatusColor(isDark).withOpacity(0.15),
-        borderRadius: BorderRadius.circular(DesignTokens.radiusCapsule),
+        color: _getBackgroundColor(isDark),
+        borderRadius: BorderRadius.circular(DesignTokens.radiusPill),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (icon != null) ...[
-            Icon(
-              icon,
-              size: 14,
-              color: _getStatusColor(isDark),
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: _getStatusColor(),
+              shape: BoxShape.circle,
             ),
-            SizedBox(width: DesignTokens.space4),
-          ],
+          ),
+          const SizedBox(width: DesignTokens.space6),
           Text(
             label,
-            style: AppTextStyles.labelSmall.copyWith(
-              color: _getStatusColor(isDark),
+            style: AppTextStyles.labelMedium.copyWith(
+              fontSize: _getFontSize(),
+              color: _getTextColor(isDark),
             ),
           ),
         ],
@@ -178,17 +418,60 @@ class StatusChip extends StatelessWidget {
     );
   }
 
-  Color _getStatusColor(bool isDark) {
+  double _getHeight() {
+    switch (size) {
+      case AppChipSize.small:
+        return 24;
+      case AppChipSize.medium:
+        return 32;
+      case AppChipSize.large:
+        return 40;
+    }
+  }
+
+  double _getPadding() {
+    switch (size) {
+      case AppChipSize.small:
+        return DesignTokens.space8;
+      case AppChipSize.medium:
+        return DesignTokens.space12;
+      case AppChipSize.large:
+        return DesignTokens.space16;
+    }
+  }
+
+  double _getFontSize() {
+    switch (size) {
+      case AppChipSize.small:
+        return 11;
+      case AppChipSize.medium:
+        return 12;
+      case AppChipSize.large:
+        return 14;
+    }
+  }
+
+  Color _getStatusColor() {
     switch (status) {
       case ChipStatus.success:
-        return isDark ? AppColors.successDarkMode : AppColors.success;
+        return AppSolidColors.success;
       case ChipStatus.warning:
-        return isDark ? AppColors.warningDarkMode : AppColors.warning;
+        return AppSolidColors.warning;
       case ChipStatus.error:
-        return isDark ? AppColors.errorDarkMode : AppColors.error;
+        return AppSolidColors.error;
       case ChipStatus.info:
-        return isDark ? AppColors.infoDarkMode : AppColors.info;
+        return AppSolidColors.info;
+      case ChipStatus.neutral:
+        return AppColors.textSecondaryLight;
     }
+  }
+
+  Color _getBackgroundColor(bool isDark) {
+    return _getStatusColor().withOpacity(isDark ? 0.2 : 0.1);
+  }
+
+  Color _getTextColor(bool isDark) {
+    return isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight;
   }
 }
 
@@ -198,94 +481,178 @@ enum ChipStatus {
   warning,
   error,
   info,
+  neutral,
 }
 
-/// 积分变化标签
-class PointsChangeChip extends StatelessWidget {
-  const PointsChangeChip({
+/// 积分标签 - 显示积分变化
+class PointsChip extends ConsumerWidget {
+  const PointsChip({
     super.key,
     required this.points,
-    this.isEarned = true,
+    this.size = AppChipSize.medium,
+    this.showIcon = true,
   });
 
   final int points;
-  final bool isEarned;
+  final AppChipSize size;
+  final bool showIcon;
 
   @override
-  Widget build(BuildContext context) {
-    final color = isEarned ? AppColors.pointsEarned : AppColors.pointsSpent;
-    final prefix = isEarned ? '+' : '-';
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isEarned = points > 0;
+    final color = isEarned
+        ? AppSolidColors.pointsEarned
+        : AppSolidColors.pointsSpent;
+    final bgColor = isEarned
+        ? AppSolidColors.pointsEarned.withOpacity(0.15)
+        : AppSolidColors.pointsSpent.withOpacity(0.15);
 
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: DesignTokens.space8,
-        vertical: DesignTokens.space2,
-      ),
+      height: _getHeight(),
+      padding: EdgeInsets.symmetric(horizontal: _getPadding()),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(DesignTokens.radiusCapsule),
+        color: bgColor,
+        borderRadius: BorderRadius.circular(DesignTokens.radiusPill),
       ),
-      child: Text(
-        '$prefix$points',
-        style: AppTextStyles.labelMedium.copyWith(
-          color: color,
-          fontWeight: FontWeight.w700,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (showIcon) ...[
+            Icon(
+              isEarned
+                  ? Icons.add_circle_rounded
+                  : Icons.remove_circle_rounded,
+              size: _getIconSize(),
+              color: color,
+            ),
+            const SizedBox(width: DesignTokens.space4),
+          ],
+          Text(
+            '${isEarned ? '+' : ''}${points.abs()}',
+            style: AppTextStyles.labelLarge.copyWith(
+              fontSize: _getFontSize(),
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
+
+  double _getHeight() {
+    switch (size) {
+      case AppChipSize.small:
+        return 24;
+      case AppChipSize.medium:
+        return 32;
+      case AppChipSize.large:
+        return 40;
+    }
+  }
+
+  double _getPadding() {
+    switch (size) {
+      case AppChipSize.small:
+        return DesignTokens.space8;
+      case AppChipSize.medium:
+        return DesignTokens.space12;
+      case AppChipSize.large:
+        return DesignTokens.space16;
+    }
+  }
+
+  double _getFontSize() {
+    switch (size) {
+      case AppChipSize.small:
+        return 12;
+      case AppChipSize.medium:
+        return 14;
+      case AppChipSize.large:
+        return 16;
+    }
+  }
+
+  double _getIconSize() {
+    switch (size) {
+      case AppChipSize.small:
+        return 14;
+      case AppChipSize.medium:
+        return 16;
+      case AppChipSize.large:
+        return 18;
+    }
+  }
 }
 
-/// 时间标签
-class TimeBadge extends StatelessWidget {
-  const TimeBadge({
+/// 标签组 - 用于选择多个标签
+class AppChipGroup extends ConsumerStatefulWidget {
+  const AppChipGroup({
     super.key,
-    required this.minutes,
-    this.limitMinutes,
-    this.showProgress = false,
+    required this.chips,
+    required this.selectedChips,
+    this.onSelectionChanged,
+    this.multiselect = true,
+    this.type = AppChipType.filled,
+    this.size = AppChipSize.medium,
+    this.spacing = DesignTokens.space8,
+    this.runSpacing = DesignTokens.space8,
   });
 
-  final int minutes;
-  final int? limitMinutes;
-  final bool showProgress;
+  final List<String> chips;
+  final List<String> selectedChips;
+  final ValueChanged<List<String>>? onSelectionChanged;
+  final bool multiselect;
+  final AppChipType type;
+  final AppChipSize size;
+  final double spacing;
+  final double runSpacing;
+
+  @override
+  ConsumerState<AppChipGroup> createState() => _AppChipGroupState();
+}
+
+class _AppChipGroupState extends ConsumerState<AppChipGroup> {
+  late List<String> _selectedChips;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedChips = List.from(widget.selectedChips);
+  }
+
+  void _handleChipSelected(String chip, bool selected) {
+    setState(() {
+      if (widget.multiselect) {
+        if (selected) {
+          _selectedChips.add(chip);
+        } else {
+          _selectedChips.remove(chip);
+        }
+      } else {
+        _selectedChips.clear();
+        if (selected) {
+          _selectedChips.add(chip);
+        }
+      }
+    });
+    widget.onSelectionChanged?.call(_selectedChips);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final usagePercent = limitMinutes != null && limitMinutes! > 0
-        ? minutes / limitMinutes!
-        : 0.0;
-
-    Color getBadgeColor() {
-      if (usagePercent < 0.7) {
-        return AppColors.success;
-      } else if (usagePercent < 0.9) {
-        return AppColors.warning;
-      } else {
-        return AppColors.error;
-      }
-    }
-
-    final hours = minutes ~/ 60;
-    final mins = minutes % 60;
-    final timeText = hours > 0 ? '${hours}h${mins}m' : '${mins}m';
-
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: DesignTokens.space8,
-        vertical: DesignTokens.space4,
-      ),
-      decoration: BoxDecoration(
-        color: getBadgeColor().withOpacity(0.15),
-        borderRadius: BorderRadius.circular(DesignTokens.radius8),
-      ),
-      child: Text(
-        timeText,
-        style: AppTextStyles.labelMedium.copyWith(
-          color: getBadgeColor(),
-          fontWeight: FontWeight.w600,
-        ),
-      ),
+    return Wrap(
+      spacing: widget.spacing,
+      runSpacing: widget.runSpacing,
+      children: widget.chips.map((chip) {
+        return AppChip(
+          label: chip,
+          selected: _selectedChips.contains(chip),
+          onSelected: (selected) => _handleChipSelected(chip, selected),
+          type: widget.type,
+          size: widget.size,
+        );
+      }).toList(),
     );
   }
 }
