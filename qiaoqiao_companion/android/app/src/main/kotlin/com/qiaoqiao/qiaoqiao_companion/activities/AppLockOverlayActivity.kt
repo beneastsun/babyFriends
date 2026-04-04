@@ -1,6 +1,9 @@
 package com.qiaoqiao.qiaoqiao_companion.activities
 
 import android.app.Activity
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -11,6 +14,7 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
+import androidx.core.app.NotificationCompat
 import com.qiaoqiao.qiaoqiao_companion.MainActivity
 import com.qiaoqiao.qiaoqiao_companion.R
 import com.qiaoqiao.qiaoqiao_companion.features.parent_mode.data.ParentPasswordRepository
@@ -24,20 +28,86 @@ class AppLockOverlayActivity : Activity() {
 
     companion object {
         private const val TAG = "AppLockOverlayActivity"
+        private const val CHANNEL_ID = "app_lock_channel"
+        private const val NOTIFICATION_ID = 9999
 
         /**
          * 启动锁屏覆盖
+         * 使用全屏通知来在 Android 10+ 上启动 Activity
          */
         fun start(context: Context) {
+            Log.d(TAG, "start() called - preparing to show lock overlay")
+
             // 记录触发时间
             AppLockManager.setLastTriggerTime(context, System.currentTimeMillis())
 
+            // 方法1: 直接尝试启动Activity
+            try {
+                val intent = Intent(context, AppLockOverlayActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_CLEAR_TASK or
+                            Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or
+                            Intent.FLAG_ACTIVITY_BROUGHT_TO_FRONT
+                }
+                context.startActivity(intent)
+                Log.d(TAG, "Direct startActivity called")
+            } catch (e: Exception) {
+                Log.e(TAG, "Direct startActivity failed, trying notification method", e)
+                // 如果直接启动失败，使用全屏通知方式
+                showFullScreenNotification(context)
+            }
+        }
+
+        /**
+         * 使用全屏通知启动Activity (Android 10+ 后台启动限制的解决方案)
+         */
+        private fun showFullScreenNotification(context: Context) {
+            Log.d(TAG, "showFullScreenNotification() called")
+
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+            // 创建通知渠道
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    CHANNEL_ID,
+                    "App锁提醒",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "当App被尝试关闭时显示提醒"
+                    enableLights(true)
+                    enableVibration(true)
+                    lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
+                }
+                notificationManager.createNotificationChannel(channel)
+            }
+
+            // 创建启动Activity的Intent
             val intent = Intent(context, AppLockOverlayActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                         Intent.FLAG_ACTIVITY_CLEAR_TASK or
                         Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
             }
-            context.startActivity(intent)
+
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                0,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            // 创建全屏通知
+            val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle("纹纹小伙伴正在运行中")
+                .setContentText("点击返回应用")
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setFullScreenIntent(pendingIntent, true)
+                .setAutoCancel(true)
+                .build()
+
+            notificationManager.notify(NOTIFICATION_ID, notification)
+            Log.d(TAG, "Full-screen notification shown")
         }
     }
 
@@ -49,22 +119,37 @@ class AppLockOverlayActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Log.d(TAG, "onCreate called - App lock overlay is showing")
 
         // 设置全屏
         setupFullScreen()
 
-        setContentView(R.layout.activity_app_lock_overlay)
+        try {
+            setContentView(R.layout.activity_app_lock_overlay)
+            Log.d(TAG, "Layout set successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to set content view", e)
+            finish()
+            return
+        }
 
         passwordRepository = ParentPasswordRepository(this)
 
         initViews()
         setupListeners()
+        Log.d(TAG, "App lock overlay initialized successfully")
     }
 
     /**
      * 设置全屏显示
      */
     private fun setupFullScreen() {
+        // 添加显示在锁屏上的标志
+        window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED)
+        window.addFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        window.addFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.setDecorFitsSystemWindows(false)
             window.insetsController?.let { controller ->
@@ -85,6 +170,8 @@ class AppLockOverlayActivity : Activity() {
 
         // 防止截屏
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+
+        Log.d(TAG, "setupFullScreen completed")
     }
 
     /**
@@ -130,6 +217,9 @@ class AppLockOverlayActivity : Activity() {
         if (passwordRepository.verifyPassword(password)) {
             // 密码正确，关闭锁屏
             Log.d(TAG, "Password correct, unlocking")
+            // 取消通知
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.cancel(NOTIFICATION_ID)
             finish()
         } else {
             // 密码错误
@@ -163,5 +253,6 @@ class AppLockOverlayActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         // 不执行任何操作，阻止返回
+        Log.d(TAG, "Back button pressed - ignoring")
     }
 }
