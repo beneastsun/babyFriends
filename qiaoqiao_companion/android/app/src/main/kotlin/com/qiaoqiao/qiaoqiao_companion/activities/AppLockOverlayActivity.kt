@@ -1,5 +1,6 @@
 package com.qiaoqiao.qiaoqiao_companion.activities
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -10,7 +11,6 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
 import com.qiaoqiao.qiaoqiao_companion.MainActivity
 import com.qiaoqiao.qiaoqiao_companion.R
 import com.qiaoqiao.qiaoqiao_companion.features.parent_mode.data.ParentPasswordRepository
@@ -20,7 +20,7 @@ import com.qiaoqiao.qiaoqiao_companion.managers.AppLockManager
  * App锁屏覆盖Activity
  * 当用户尝试滑掉App时显示，需要家长密码才能解除
  */
-class AppLockOverlayActivity : AppCompatActivity() {
+class AppLockOverlayActivity : Activity() {
 
     companion object {
         private const val TAG = "AppLockOverlayActivity"
