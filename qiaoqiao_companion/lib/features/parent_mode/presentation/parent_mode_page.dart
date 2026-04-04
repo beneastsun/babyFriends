@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qiaoqiao_companion/core/theme/app_theme.dart';
 import 'package:qiaoqiao_companion/features/parent_mode/domain/parent_auth_service.dart';
+import 'package:qiaoqiao_companion/shared/providers/app_lock_provider.dart';
 import 'package:qiaoqiao_companion/shared/widgets/design_system/app_button.dart';
 
 /// 家长模式主页
@@ -73,6 +74,61 @@ class ParentModePage extends ConsumerWidget {
                 padding: const EdgeInsets.symmetric(horizontal: DesignTokens.space16),
                 sliver: SliverToBoxAdapter(
                   child: _buildHeaderCard(isDark),
+                ),
+              ),
+
+              // 设置区域
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(
+                  DesignTokens.space16,
+                  DesignTokens.space24,
+                  DesignTokens.space16,
+                  DesignTokens.space8,
+                ),
+                sliver: SliverToBoxAdapter(
+                  child: Text(
+                    '设置',
+                    style: AppTextStyles.heading3.copyWith(
+                      color: isDark
+                          ? AppColors.textPrimaryDark
+                          : AppColors.textPrimaryLight,
+                    ),
+                  ),
+                ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: DesignTokens.space16),
+                sliver: SliverToBoxAdapter(
+                  child: Consumer(
+                    builder: (context, ref, child) {
+                      final appLockState = ref.watch(appLockProvider);
+                      return Container(
+                        decoration: BoxDecoration(
+                          color: isDark ? AppColors.cardDark : AppColors.cardLight,
+                          borderRadius: BorderRadius.circular(DesignTokens.radius16),
+                          boxShadow: AppShadows.card,
+                        ),
+                        child: SwitchListTile(
+                          title: const Text('防关闭保护'),
+                          subtitle: const Text('防止孩子在最近任务中关闭App'),
+                          secondary: const Icon(Icons.lock),
+                          value: appLockState.isEnabled,
+                          onChanged: appLockState.isLoading
+                              ? null
+                              : (value) async {
+                                  final success = await ref
+                                      .read(appLockProvider.notifier)
+                                      .setEnabled(value);
+                                  if (!success && context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('设置失败，请重试')),
+                                    );
+                                  }
+                                },
+                        ),
+                      );
+                    },
+                  ),
                 ),
               ),
 
