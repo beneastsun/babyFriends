@@ -15,6 +15,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.qiaoqiao.qiaoqiao_companion.MainActivity
 import com.qiaoqiao.qiaoqiao_companion.R
+import com.qiaoqiao.qiaoqiao_companion.activities.AppLockOverlayActivity
+import com.qiaoqiao.qiaoqiao_companion.managers.AppLockManager
 import com.qiaoqiao.qiaoqiao_companion.receivers.ServiceRestartReceiver
 import com.qiaoqiao.qiaoqiao_companion.workers.KeepAliveWorker
 
@@ -210,5 +212,36 @@ class MonitorForegroundService : Service() {
         }
 
         super.onDestroy()
+    }
+
+    /**
+     * 当任务被移除时调用（用户在最近任务中滑掉App）
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        Log.d(TAG, "Task removed by user")
+
+        // 检查是否启用了防关闭锁
+        if (AppLockManager.isLockEnabled(applicationContext)) {
+            Log.d(TAG, "App lock is enabled, showing overlay")
+
+            // 启动锁屏覆盖
+            AppLockOverlayActivity.start(applicationContext)
+
+            // 尝试重启服务
+            try {
+                val restartIntent = Intent(applicationContext, MonitorForegroundService::class.java)
+                restartIntent.action = "START"
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    applicationContext.startForegroundService(restartIntent)
+                } else {
+                    applicationContext.startService(restartIntent)
+                }
+                Log.d(TAG, "Service restart triggered")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to restart service", e)
+            }
+        }
+
+        super.onTaskRemoved(rootIntent)
     }
 }
