@@ -6,6 +6,7 @@ import io.flutter.plugin.common.MethodChannel
 import com.qiaoqiao.qiaoqiao_companion.channels.UsageStatsChannel
 import com.qiaoqiao.qiaoqiao_companion.channels.OverlayChannel
 import com.qiaoqiao.qiaoqiao_companion.channels.ServiceChannel
+import com.qiaoqiao.qiaoqiao_companion.channels.AppLockChannel
 
 class MainActivity : FlutterActivity() {
 
@@ -36,6 +37,12 @@ class MainActivity : FlutterActivity() {
             ServiceChannel.CHANNEL_NAME
         )
         serviceChannel.setMethodCallHandler(ServiceChannel(this))
+
+        // 注册App锁通道
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            AppLockChannel.CHANNEL_NAME
+        ).setMethodCallHandler(AppLockChannel(this).apply { init() })
 
         // 注册应用控制通道
         val appChannel = MethodChannel(
