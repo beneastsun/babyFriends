@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App Lock Overlay -->
+    <string name="app_lock_title">纹纹小伙伴正在运行中</string>
+    <string name="app_lock_message">为保护孩子的健康使用习惯\n需要家长密码才能关闭</string>
+    <string name="app_lock_password_hint">请输入家长密码</string>
+    <string name="app_lock_error">密码错误，请重试</string>
+    <string name="app_lock_unlock">解除锁定</string>
+    <string name="app_lock_reopen">重新打开App</string>
+</resources>
