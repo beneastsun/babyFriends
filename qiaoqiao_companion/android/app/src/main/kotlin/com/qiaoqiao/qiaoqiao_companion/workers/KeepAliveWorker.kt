@@ -7,6 +7,8 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.qiaoqiao.qiaoqiao_companion.receivers.AlarmReceiver
+import com.qiaoqiao.qiaoqiao_companion.services.GuardService
 import com.qiaoqiao.qiaoqiao_companion.services.MonitorForegroundService
 import java.util.concurrent.TimeUnit
 
@@ -56,19 +58,25 @@ class KeepAliveWorker(
         Log.d(TAG, "Checking service status...")
 
         return try {
-            // 检查服务是否在运行
-            if (!MonitorForegroundService.isServiceRunning()) {
-                Log.d(TAG, "Service not running, attempting to restart...")
-                // 尝试重启服务
-                MonitorForegroundService.start(applicationContext)
-                Log.d(TAG, "Service restart triggered")
-            } else {
-                Log.d(TAG, "Service is running normally")
+            // 检查并启动守护服务
+            if (!GuardService.isServiceRunning()) {
+                Log.d(TAG, "Guard service not running, starting...")
+                GuardService.start(applicationContext)
             }
+
+            // 检查并启动主监控服务
+            if (!MonitorForegroundService.isServiceRunning()) {
+                Log.d(TAG, "Monitor service not running, starting...")
+                MonitorForegroundService.start(applicationContext)
+            }
+
+            // 确保 AlarmManager 闹钟在运行
+            AlarmReceiver.setAlarm(applicationContext)
+
+            Log.d(TAG, "Keep-alive check completed")
             Result.success()
         } catch (e: Exception) {
             Log.e(TAG, "Error checking/restarting service", e)
-            // 即使失败也返回 success，下次还会重试
             Result.success()
         }
     }

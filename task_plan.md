@@ -12,10 +12,21 @@
 
 ## Current Phase
 
-**Phase 5.0: 家长管理规则界面重构**（规格已完成，待实现）
+**Phase UI-Redesign: UI 重设计 - 苹果式简洁风格**（进行中）
 
-> 📋 规格文档: `docs/superpowers/specs/2026-03-19-parent-rules-redesign.md`
-> 📋 实现计划: `docs/superpowers/plans/2026-03-19-parent-rules-redesign.md`
+> 🎨 设计目标: 精简配色 + 大量留白 + 柔和渐变 + 精致动效
+> 📋 设计原则: 参考苹果设计，整体风格统一，只做一套精致的设计系统
+
+---
+
+### 阶段总览（更新）
+
+| 阶段 | 内容 | 预估时间 | 状态 |
+|------|------|----------|------|
+| **阶段 UI-Redesign** | UI 重设计 - 苹果式简洁风格 | 约 3 天 | 🟡 进行中 |
+| **阶段 1-5.0** | 基础框架 + 核心功能 | 已完成 | ✅ 完成 |
+| **阶段 6** | 核心功能完善 | 约 1.5 周 | 🔴 待开始 |
+| **阶段 7** | 用户体验优化 | 约 1 周 | 🔴 待开始 |
 
 ---
 
@@ -32,7 +43,79 @@
 
 ---
 
-## 阶段 1：基础框架搭建
+## 阶段 UI-Redesign: UI 重设计 - 苹果式简洁风格
+
+### 设计原则
+
+参考苹果设计语言 + 适合 11 岁女孩的活泼感：
+
+| 原则 | 描述 | 实现方式 |
+|------|------|----------|
+| **精简配色** | 只用 2-3 个主色，不花哨 | 主色 + 辅助色 + 语义色 |
+| **大量留白** | 空间宽松，不拥挤 | 间距增加 20-30% |
+| **柔和渐变** | 非霓虹色，舒适渐变 | 同色系渐变，低饱和度 |
+| **精致动效** | 微动画，不夸张 | 缩放、淡入、弹性 |
+| **整体统一** | 只做一套设计系统 | 所有页面用相同组件 |
+
+### 新配色方案（苹果式简洁）
+
+```dart
+// 主色 - 柔和樱花粉
+static const Color primary = Color(0xFFEC8B9F);      // 主色
+static const Color primaryLight = Color(0xFFF5B5C4); // 浅色（悬停）
+static const Color primaryDark = Color(0xFFD66A80);  // 深色（按下）
+
+// 辅助色 - 淡薰衣草
+static const Color secondary = Color(0xFFC5B3E6);    // 辅助
+static const Color secondaryLight = Color(0xFFDDD0F0);
+
+// 背景色 - 暖白
+static const Color background = Color(0xFFFAF9F8);   // 背景暖白
+static const Color surface = Color(0xFFFFFFFF);      // 卡片纯白
+
+// 文字色 - 深灰
+static const Color textPrimary = Color(0xFF1D1D1F);  // 主文字
+static const Color textSecondary = Color(0xFF86868B); // 次文字
+```
+
+### Phase UI-1: 设计系统重构
+
+- [ ] 创建新配色文件 `app_colors_simple.dart`
+- [ ] 精简现有配色（移除多主题，只保留一套）
+- [ ] 更新 Design Tokens（间距、圆角、阴影）
+- [ ] 创建新的组件库（卡片、按钮、输入框）
+- **Status:** 🔴 pending
+
+### Phase UI-2: 首页重设计
+
+- [ ] 重构巧巧卡片（大头像 + 简洁文字）
+- [ ] 重构使用时间显示（大数字 + 进度环）
+- [ ] 重构应用列表（简约卡片，左图标右信息）
+- [ ] 添加微动效（淡入、缩放、滑动）
+- **Status:** 🔴 pending
+
+### Phase UI-3: 规则页面重设计
+
+- [ ] 重构规则展示（卡片式布局，图标化）
+- [ ] 重构进度条（细线、柔和颜色）
+- [ ] 添加空状态插画
+- **Status:** 🔴 pending
+
+### Phase UI-4: 其他页面统一
+
+- [ ] 设置页面统一风格
+- [ ] 报告页面统一风格
+- [ ] 家长模式页面统一风格
+- **Status:** 🔴 pending
+
+### Phase UI-5: 动效系统
+
+- [ ] 创建通用动画组件（淡入、滑动、缩放）
+- [ ] 添加页面切换动画
+- [ ] 添加列表滚动动画
+- **Status:** 🔴 pending
+
+---
 
 ### Phase 1: 环境检查与项目初始化
 - [x] 运行 `flutter doctor` 检查环境

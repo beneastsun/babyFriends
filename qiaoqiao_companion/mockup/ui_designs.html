@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>纹纹小伙伴 - UI设计方案</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&family=Nunito:wght@400;600;700;800&family=Patrick+Hand&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+            font-family: 'Nunito', sans-serif;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            color: white;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 800;
+            text-shadow: 0 2px 20px rgba(0,0,0,0.2);
+        }
+
+        .subtitle {
+            text-align: center;
+            color: rgba(255,255,255,0.9);
+            margin-bottom: 40px;
+            font-size: 1.1rem;
+        }
+
+        .designs {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+            gap: 30px;
+        }
+
+        .design-card {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 24px;
+            padding: 20px;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .design-title {
+            color: white;
+            text-align: center;
+            font-size: 1.3rem;
+            margin-bottom: 15px;
+            font-weight: 700;
+        }
+
+        .phone-frame {
+            width: 375px;
+            height: 812px;
+            border-radius: 40px;
+            overflow: hidden;
+            margin: 0 auto;
+            box-shadow: 0 25px 80px rgba(0,0,0,0.3);
+            position: relative;
+        }
+
+        /* ====== V1: 柔和樱花风 ====== */
+        .v1-phone {
+            background: linear-gradient(180deg, #FFF5F7 0%, #FFE4E9 100%);
+        }
+
+        .v1-phone * {
+            font-family: 'Quicksand', sans-serif !important;
+        }
+
+        .v1-header {
+            padding: 60px 20px 20px;
+        }
+
+        .v1-title {
+            font-size: 28px;
+            font-weight: 700;
+            color: #D46A8A;
+            letter-spacing: 1px;
+        }
+
+        .v1-avatar-card {
+            background: white;
+            margin: 10px 20px;
+            padding: 20px;
+            border-radius: 28px;
+            box-shadow: 0 8px 32px rgba(212, 106, 138, 0.15);
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .v1-avatar {
+            width: 70px;
+            height: 70px;
+            background: linear-gradient(135deg, #FFB6C1 0%, #FFC0CB 100%);
+            border-radius: 22px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+        }
+
+        .v1-avatar-info h3 {
+            font-size: 22px;
+            color: #4A4A4A;
+            font-weight: 700;
+        }
+
+        .v1-avatar-info p {
+            font-size: 14px;
+            color: #999;
+            margin-top: 4px;
+        }
+
+        .v1-time-card {
+            background: white;
+            margin: 20px;
+            padding: 30px 20px;
+            border-radius: 32px;
+            box-shadow: 0 8px 32px rgba(212, 106, 138, 0.15);
+            text-align: center;
+        }
+
+        .v1-time-circle {
+            width: 160px;
+            height: 160px;
+            margin: 0 auto 20px;
+            position: relative;
+        }
+
+        .v1-time-circle svg {
+            transform: rotate(-90deg);
+        }
+
+        .v1-time-circle .bg {
+            stroke: #F0F0F0;
+        }
+
+        .v1-time-circle .progress {
+            stroke: url(#v1-gradient);
+            stroke-linecap: round;
+            stroke-dasharray: 440;
+            stroke-dashoffset: 132;
+            animation: v1-progress 1.5s ease-out;
+        }
+
+        @keyframes v1-progress {
+            from { stroke-dashoffset: 440; }
+            to { stroke-dashoffset: 132; }
+        }
+
+        .v1-time-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .v1-time-text .time {
+            font-size: 36px;
+            font-weight: 800;
+            color: #D46A8A;
+        }
+
+        .v1-time-text .label {
+            font-size: 13px;
+            color: #999;
+        }
+
+        .v1-apps {
+            padding: 0 20px;
+        }
+
+        .v1-apps-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: #4A4A4A;
+            margin-bottom: 15px;
+        }
+
+        .v1-app-item {
+            background: white;
+            padding: 18px 20px;
+            border-radius: 20px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            box-shadow: 0 4px 20px rgba(212, 106, 138, 0.08);
+        }
+
+        .v1-app-icon {
+            width: 52px;
+            height: 52px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+        }
+
+        .v1-app-info {
+            flex: 1;
+        }
+
+        .v1-app-name {
+            font-size: 16px;
+            font-weight: 600;
+            color: #4A4A4A;
+        }
+
+        .v1-app-time {
+            font-size: 14px;
+            color: #D46A8A;
+            font-weight: 700;
+        }
+
+        /* ====== V2: 清新薄荷风 ====== */
+        .v2-phone {
+            background: #F8FBF9;
+        }
+
+        .v2-phone * {
+            font-family: 'Nunito', sans-serif !important;
+        }
+
+        .v2-header {
+            padding: 60px 20px 20px;
+            background: white;
+        }
+
+        .v2-title {
+            font-size: 26px;
+            font-weight: 800;
+            color: #1A1A1A;
+            letter-spacing: -0.5px;
+        }
+
+        .v2-subtitle {
+            font-size: 13px;
+            color: #666;
+            margin-top: 6px;
+        }
+
+        .v2-stats {
+            display: flex;
+            gap: 12px;
+            padding: 20px;
+        }
+
+        .v2-stat-card {
+            flex: 1;
+            background: white;
+            padding: 20px;
+            border-radius: 20px;
+            text-align: center;
+        }
+
+        .v2-stat-value {
+            font-size: 32px;
+            font-weight: 800;
+            color: #2E8B7A;
+        }
+
+        .v2-stat-label {
+            font-size: 12px;
+            color: #999;
+            margin-top: 4px;
+        }
+
+        .v2-progress-section {
+            padding: 0 20px;
+        }
+
+        .v2-progress-card {
+            background: white;
+            border-radius: 24px;
+            padding: 24px;
+        }
+
+        .v2-progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .v2-progress-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #1A1A1A;
+        }
+
+        .v2-progress-percent {
+            font-size: 32px;
+            font-weight: 800;
+            color: #2E8B7A;
+        }
+
+        .v2-progress-bar {
+            height: 16px;
+            background: #F0F0F0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+
+        .v2-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #2E8B7A 0%, #3CB89B 100%);
+            border-radius: 10px;
+            width: 0;
+            animation: v2-fill 1.5s ease-out forwards;
+        }
+
+        @keyframes v2-fill {
+            to { width: 62%; }
+        }
+
+        .v2-progress-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #999;
+        }
+
+        .v2-apps {
+            padding: 20px;
+        }
+
+        .v2-apps-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #1A1A1A;
+            margin-bottom: 12px;
+        }
+
+        .v2-app-item {
+            background: white;
+            padding: 16px 18px;
+            border-radius: 16px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .v2-app-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        .v2-app-name {
+            font-size: 15px;
+            font-weight: 600;
+            color: #1A1A1A;
+        }
+
+        .v2-app-time {
+            margin-left: auto;
+            font-size: 14px;
+            font-weight: 700;
+            color: #2E8B7A;
+        }
+
+        /* ====== V3: 活力糖果风 ====== */
+        .v3-phone {
+            background: linear-gradient(180deg, #FFF9E6 0%, #FFEFEA 100%);
+        }
+
+        .v3-phone * {
+            font-family: 'Patrick Hand', cursive !important;
+        }
+
+        .v3-header {
+            padding: 60px 20px 20px;
+        }
+
+        .v3-title {
+            font-size: 32px;
+            font-weight: 400;
+            color: #FF6B6B;
+        }
+
+        .v3-subtitle {
+            font-size: 16px;
+            color: #FFA06B;
+            margin-top: 5px;
+        }
+
+        .v3-avatar-card {
+            background: white;
+            margin: 15px 20px;
+            padding: 25px;
+            border-radius: 30px;
+            box-shadow: 0 10px 40px rgba(255, 107, 107, 0.15);
+            position: relative;
+        }
+
+        .v3-avatar-card::before {
+            content: '✨';
+            position: absolute;
+            top: -10px;
+            right: 20px;
+            font-size: 24px;
+        }
+
+        .v3-avatar-main {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+        }
+
+        .v3-avatar {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, #FFE066 0%, #FF9A66 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 36px;
+            border: 5px solid white;
+            box-shadow: 0 5px 20px rgba(255, 154, 102, 0.3);
+        }
+
+        .v3-avatar-info h3 {
+            font-size: 26px;
+            color: #333;
+            font-weight: 400;
+        }
+
+        .v3-avatar-info p {
+            font-size: 16px;
+            color: #999;
+        }
+
+        .v3-badges {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .v3-badge {
+            background: linear-gradient(135deg, #FF9A9E 0%, #FECFEF 100%);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            color: white;
+        }
+
+        .v3-time-section {
+            padding: 0 20px;
+        }
+
+        .v3-time-card {
+            background: white;
+            border-radius: 28px;
+            padding: 25px;
+            box-shadow: 0 8px 30px rgba(255, 107, 107, 0.12);
+        }
+
+        .v3-time-header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .v3-time-big {
+            font-size: 56px;
+            color: #FF6B6B;
+            font-weight: 400;
+            line-height: 1;
+        }
+
+        .v3-time-unit {
+            font-size: 18px;
+            color: #999;
+        }
+
+        .v3-time-label {
+            font-size: 16px;
+            color: #FFA06B;
+            margin-top: 8px;
+        }
+
+        .v3-circles {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .v3-circle {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            color: white;
+        }
+
+        .v3-circle.pink { background: #FF9A9E; }
+        .v3-circle.orange { background: #FFA06B; }
+        .v3-circle.yellow { background: #FFE066; }
+        .v3-circle.mint { background: #4ECDC4; }
+
+        .v3-apps {
+            padding: 20px;
+        }
+
+        .v3-apps-title {
+            font-size: 22px;
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        .v3-app-item {
+            background: white;
+            padding: 18px 20px;
+            border-radius: 24px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        }
+
+        .v3-app-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+        }
+
+        .v3-app-info {
+            flex: 1;
+        }
+
+        .v3-app-name {
+            font-size: 18px;
+            color: #333;
+        }
+
+        .v3-app-time {
+            font-size: 16px;
+            color: #FF6B6B;
+        }
+
+        .v3-stars {
+            font-size: 14px;
+        }
+
+        .version-tag {
+            display: inline-block;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .v1-tag { background: #FFB6C1; color: white; }
+        .v2-tag { background: #3CB89B; color: white; }
+        .v3-tag { background: #FF6B6B; color: white; }
+
+        .design-info {
+            text-align: center;
+            color: rgba(255,255,255,0.8);
+            font-size: 13px;
+            margin-top: 12px;
+            line-height: 1.6;
+        }
+
+        .notch {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 150px;
+            height: 30px;
+            background: #1A1A1A;
+            border-radius: 0 0 20px 20px;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🌸 纹纹小伙伴 - UI设计方案</h1>
+        <p class="subtitle">三种风格，专为11岁女孩设计</p>
+
+        <div class="designs">
+            <!-- V1: 柔和樱花风 -->
+            <div class="design-card">
+                <div class="phone-frame v1-phone">
+                    <div class="notch"></div>
+                    <div class="v1-header">
+                        <div class="v1-title">纹纹小伙伴</div>
+                    </div>
+
+                    <div class="v1-avatar-card">
+                        <div class="v1-avatar">🌸</div>
+                        <div class="v1-avatar-info">
+                            <h3>巧巧</h3>
+                            <p>今天也是元气满满的一天~</p>
+                        </div>
+                    </div>
+
+                    <div class="v1-time-card">
+                        <svg width="160" height="160" viewBox="0 0 160 160">
+                            <defs>
+                                <linearGradient id="v1-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" stop-color="#FFB6C1"/>
+                                    <stop offset="100%" stop-color="#D46A8A"/>
+                                </linearGradient>
+                            </defs>
+                            <circle class="bg" cx="80" cy="80" r="70" fill="none" stroke-width="12"/>
+                            <circle class="progress" cx="80" cy="80" r="70" fill="none" stroke-width="12"/>
+                        </svg>
+                        <div class="v1-time-text">
+                            <div class="time">2h30m</div>
+                            <div class="label">今日使用时长</div>
+                        </div>
+                    </div>
+
+                    <div class="v1-apps">
+                        <div class="v1-apps-title">常用应用</div>
+                        <div class="v1-app-item">
+                            <div class="v1-app-icon" style="background: #E8F5E9;">💬</div>
+                            <div class="v1-app-info">
+                                <div class="v1-app-name">微信</div>
+                                <div class="v1-app-time">45分钟</div>
+                            </div>
+                        </div>
+                        <div class="v1-app-item">
+                            <div class="v1-app-icon" style="background: #FFF3E0;">🎵</div>
+                            <div class="v1-app-info">
+                                <div class="v1-app-name">抖音</div>
+                                <div class="v1-app-time">32分钟</div>
+                            </div>
+                        </div>
+                        <div class="v1-app-item">
+                            <div class="v1-app-icon" style="background: #FCE4EC;">📺</div>
+                            <div class="v1-app-info">
+                                <div class="v1-app-name">哔哩哔哩</div>
+                                <div class="v1-app-time">28分钟</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="design-title">
+                    <span class="version-tag v1-tag">V1</span>
+                    柔和樱花风
+                </div>
+                <div class="design-info">
+                    温柔粉系配色 · Quicksand圆润字体<br>
+                    柔和阴影 · 治愈感满满
+                </div>
+            </div>
+
+            <!-- V2: 清新薄荷风 -->
+            <div class="design-card">
+                <div class="phone-frame v2-phone">
+                    <div class="notch"></div>
+                    <div class="v2-header">
+                        <div class="v2-title">纹纹小伙伴</div>
+                        <div class="v2-subtitle">Manage your time wisely ✦</div>
+                    </div>
+
+                    <div class="v2-stats">
+                        <div class="v2-stat-card">
+                            <div class="v2-stat-value">2.5h</div>
+                            <div class="v2-stat-label">今日使用</div>
+                        </div>
+                        <div class="v2-stat-card">
+                            <div class="v2-stat-value">82%</div>
+                            <div class="v2-stat-label">达成率</div>
+                        </div>
+                    </div>
+
+                    <div class="v2-progress-section">
+                        <div class="v2-progress-card">
+                            <div class="v2-progress-header">
+                                <div class="v2-progress-title">今日限额</div>
+                                <div class="v2-progress-percent">62%</div>
+                            </div>
+                            <div class="v2-progress-bar">
+                                <div class="v2-progress-fill"></div>
+                            </div>
+                            <div class="v2-progress-labels">
+                                <span>已用 2h30m</span>
+                                <span>限额 4h</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="v2-apps">
+                        <div class="v2-apps-title">应用使用排行</div>
+                        <div class="v2-app-item">
+                            <div class="v2-app-icon" style="background: #E8F5E9;">💬</div>
+                            <div class="v2-app-name">微信</div>
+                            <div class="v2-app-time">45分</div>
+                        </div>
+                        <div class="v2-app-item">
+                            <div class="v2-app-icon" style="background: #FFF3E0;">🎵</div>
+                            <div class="v2-app-name">抖音</div>
+                            <div class="v2-app-time">32分</div>
+                        </div>
+                        <div class="v2-app-item">
+                            <div class="v2-app-icon" style="background: #FCE4EC;">📺</div>
+                            <div class="v2-app-name">哔哩哔哩</div>
+                            <div class="v2-app-time">28分</div>
+                        </div>
+                        <div class="v2-app-item">
+                            <div class="v2-app-icon" style="background: #E3F2FD;">🎮</div>
+                            <div class="v2-app-name">王者荣耀</div>
+                            <div class="v2-app-time">25分</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="design-title">
+                    <span class="version-tag v2-tag">V2</span>
+                    清新薄荷风
+                </div>
+                <div class="design-info">
+                    苹果式简洁 · 薄荷绿+白配色<br>
+                    Nunito几何字体 · 清爽留白
+                </div>
+            </div>
+
+            <!-- V3: 活力糖果风 -->
+            <div class="design-card">
+                <div class="phone-frame v3-phone">
+                    <div class="notch"></div>
+                    <div class="v3-header">
+                        <div class="v3-title">纹纹小伙伴 🌈</div>
+                        <div class="v3-subtitle">让时间管理变得有趣！</div>
+                    </div>
+
+                    <div class="v3-avatar-card">
+                        <div class="v3-avatar-main">
+                            <div class="v3-avatar">😊</div>
+                            <div class="v3-avatar-info">
+                                <h3>巧巧</h3>
+                                <p>今天要控制玩手机的时间哦~</p>
+                            </div>
+                        </div>
+                        <div class="v3-badges">
+                            <div class="v3-badge">🏆 小达人</div>
+                            <div class="v3-badge">⭐ 三星</div>
+                        </div>
+                    </div>
+
+                    <div class="v3-time-section">
+                        <div class="v3-time-card">
+                            <div class="v3-time-header">
+                                <div class="v3-time-big">2h30m</div>
+                                <div class="v3-time-unit">小时 · 分钟</div>
+                                <div class="v3-time-label">今日已使用时间</div>
+                            </div>
+                            <div class="v3-circles">
+                                <div class="v3-circle pink">微信</div>
+                                <div class="v3-circle orange">抖音</div>
+                                <div class="v3-circle yellow">B站</div>
+                                <div class="v3-circle mint">游戏</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="v3-apps">
+                        <div class="v3-apps-title">我的应用使用</div>
+                        <div class="v3-app-item">
+                            <div class="v3-app-icon" style="background: #E8F5E9;">💬</div>
+                            <div class="v3-app-info">
+                                <div class="v3-app-name">微信</div>
+                                <div class="v3-app-time">45分钟</div>
+                            </div>
+                            <div class="v3-stars">⭐⭐⭐</div>
+                        </div>
+                        <div class="v3-app-item">
+                            <div class="v3-app-icon" style="background: #FFF3E0;">🎵</div>
+                            <div class="v3-app-info">
+                                <div class="v3-app-name">抖音</div>
+                                <div class="v3-app-time">32分钟</div>
+                            </div>
+                            <div class="v3-stars">⭐⭐</div>
+                        </div>
+                        <div class="v3-app-item">
+                            <div class="v3-app-icon" style="background: #FCE4EC;">📺</div>
+                            <div class="v3-app-info">
+                                <div class="v3-app-name">哔哩哔哩</div>
+                                <div class="v3-app-time">28分钟</div>
+                            </div>
+                            <div class="v3-stars">⭐⭐</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="design-title">
+                    <span class="version-tag v3-tag">V3</span>
+                    活力糖果风
+                </div>
+                <div class="design-info">
+                    手写风格字体 · 克制彩色点缀<br>
+                    Q弹圆角 · 趣味性强
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -146,4 +146,37 @@ class MonitorService {
       return false;
     }
   }
+
+  /// 启动守护服务（独立进程）
+  static Future<bool> startGuardService() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('startGuardService');
+      return result ?? false;
+    } on PlatformException catch (e) {
+      print('启动守护服务失败: ${e.message}');
+      return false;
+    }
+  }
+
+  /// 停止守护服务
+  static Future<bool> stopGuardService() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('stopGuardService');
+      return result ?? false;
+    } on PlatformException catch (e) {
+      print('停止守护服务失败: ${e.message}');
+      return false;
+    }
+  }
+
+  /// 检查守护服务是否正在运行
+  static Future<bool> isGuardServiceRunning() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('isGuardServiceRunning');
+      return result ?? false;
+    } on PlatformException catch (e) {
+      print('检查守护服务状态失败: ${e.message}');
+      return false;
+    }
+  }
 }

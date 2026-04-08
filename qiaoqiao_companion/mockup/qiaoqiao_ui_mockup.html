@@ -1,0 +1,1031 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>纹纹小伙伴 - UI Mockup</title>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Quicksand:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #EC8B9F;
+            --primary-light: #F5B5C4;
+            --primary-dark: #D66A80;
+            --secondary: #C5B3E6;
+            --secondary-light: #DDD0F0;
+            --background: #FAF9F8;
+            --surface: #FFFFFF;
+            --text-primary: #1D1D1F;
+            --text-secondary: #86868B;
+            --success: #7FDBCA;
+            --warning: #FFB74D;
+        }
+
+        body {
+            font-family: 'Quicksand', sans-serif;
+            background: linear-gradient(135deg, #E8E4F0 0%, #F5E6E8 50%, #FFF5F7 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 40px 20px;
+        }
+
+        .mockup-container {
+            display: flex;
+            gap: 40px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .phone-frame {
+            width: 375px;
+            height: 812px;
+            background: var(--background);
+            border-radius: 40px;
+            box-shadow: 0 50px 100px rgba(0,0,0,0.15),
+                        0 0 0 12px #1D1D1F,
+                        inset 0 0 0 2px rgba(255,255,255,0.1);
+            overflow: hidden;
+            position: relative;
+        }
+
+        .phone-frame::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 150px;
+            height: 30px;
+            background: #1D1D1F;
+            border-radius: 0 0 20px 20px;
+            z-index: 100;
+        }
+
+        .screen {
+            width: 100%;
+            height: 100%;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 50px 20px 100px;
+        }
+
+        .screen::-webkit-scrollbar {
+            display: none;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .header h1 {
+            font-family: 'Nunito', sans-serif;
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .icon-btn {
+            width: 44px;
+            height: 44px;
+            background: var(--surface);
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            transition: all 0.3s ease;
+        }
+
+        .icon-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(236, 139, 159, 0.2);
+        }
+
+        .icon-btn svg {
+            width: 22px;
+            height: 22px;
+            stroke: var(--text-primary);
+        }
+
+        /* Avatar Card */
+        .avatar-card {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            border-radius: 28px;
+            padding: 24px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            box-shadow: 0 8px 24px rgba(236, 139, 159, 0.25);
+            animation: fadeInUp 0.6s ease;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .avatar {
+            width: 80px;
+            height: 80px;
+            background: rgba(255,255,255,0.3);
+            border-radius: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 40px;
+            backdrop-filter: blur(10px);
+        }
+
+        .avatar-info h2 {
+            font-family: 'Nunito', sans-serif;
+            font-size: 22px;
+            font-weight: 700;
+            color: white;
+            margin-bottom: 4px;
+        }
+
+        .avatar-info p {
+            font-size: 14px;
+            color: rgba(255,255,255,0.9);
+            font-weight: 500;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255,255,255,0.25);
+            padding: 6px 12px;
+            border-radius: 20px;
+            margin-top: 8px;
+            font-size: 13px;
+            color: white;
+            font-weight: 600;
+            backdrop-filter: blur(10px);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: #7FDBCA;
+            border-radius: 50%;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Usage Card */
+        .usage-card {
+            background: var(--surface);
+            border-radius: 24px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+            animation: fadeInUp 0.6s ease 0.1s both;
+        }
+
+        .usage-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .usage-header h3 {
+            font-family: 'Nunito', sans-serif;
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .usage-time {
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .time-display {
+            display: flex;
+            align-items: baseline;
+            gap: 4px;
+            margin-bottom: 16px;
+        }
+
+        .time-display .number {
+            font-family: 'Nunito', sans-serif;
+            font-size: 56px;
+            font-weight: 800;
+            color: var(--primary);
+            line-height: 1;
+        }
+
+        .time-display .unit {
+            font-size: 16px;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        .progress-bar {
+            height: 8px;
+            background: var(--background);
+            border-radius: 10px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary) 0%, var(--secondary) 100%);
+            border-radius: 10px;
+            width: 65%;
+            transition: width 1s ease;
+        }
+
+        .progress-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 8px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        /* App List */
+        .section-title {
+            font-family: 'Nunito', sans-serif;
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 16px;
+        }
+
+        .app-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .app-item {
+            background: var(--surface);
+            border-radius: 20px;
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+            transition: all 0.3s ease;
+            animation: fadeInUp 0.6s ease both;
+        }
+
+        .app-item:nth-child(1) { animation-delay: 0.2s; }
+        .app-item:nth-child(2) { animation-delay: 0.3s; }
+        .app-item:nth-child(3) { animation-delay: 0.4s; }
+
+        .app-item:hover {
+            transform: translateX(4px);
+            box-shadow: 0 4px 16px rgba(236, 139, 159, 0.12);
+        }
+
+        .app-icon {
+            width: 52px;
+            height: 52px;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 26px;
+        }
+
+        .app-icon.game { background: linear-gradient(135deg, #FFE5F0 0%, #FFF0F5 100%); }
+        .app-icon.video { background: linear-gradient(135deg, #E8E4FF 0%, #F0EDFF 100%); }
+        .app-icon.study { background: linear-gradient(135deg, #E8FFF8 0%, #F0FFFD 100%); }
+
+        .app-info {
+            flex: 1;
+        }
+
+        .app-name {
+            font-family: 'Nunito', sans-serif;
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 2px;
+        }
+
+        .app-time {
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .app-badge {
+            padding: 4px 10px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .app-badge.game { background: #FFE5F0; color: #EC8B9F; }
+        .app-badge.video { background: #E8E4FF; color: #C5B3E6; }
+        .app-badge.study { background: #E8FFF8; color: #7FDBCA; }
+
+        /* Bottom Nav */
+        .bottom-nav {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 85px;
+            background: rgba(255,255,255,0.95);
+            backdrop-filter: blur(20px);
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            padding: 0 20px 20px;
+        }
+
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .nav-item svg {
+            width: 24px;
+            height: 24px;
+            stroke: var(--text-secondary);
+            fill: none;
+            stroke-width: 2;
+            transition: all 0.3s ease;
+        }
+
+        .nav-item span {
+            font-size: 11px;
+            color: var(--text-secondary);
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .nav-item.active svg {
+            stroke: var(--primary);
+            fill: rgba(236, 139, 159, 0.1);
+        }
+
+        .nav-item.active span {
+            color: var(--primary);
+        }
+
+        /* Screen Labels */
+        .screen-label {
+            position: absolute;
+            top: -40px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            font-family: 'Nunito', sans-serif;
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        /* Rules Page Styles */
+        .rule-card {
+            background: var(--surface);
+            border-radius: 20px;
+            padding: 20px;
+            margin-bottom: 16px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            animation: fadeInUp 0.6s ease both;
+        }
+
+        .rule-card:nth-child(1) { animation-delay: 0.1s; }
+        .rule-card:nth-child(2) { animation-delay: 0.2s; }
+        .rule-card:nth-child(3) { animation-delay: 0.3s; }
+
+        .rule-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+        }
+
+        .rule-icon.time { background: linear-gradient(135deg, #FFE5F0 0%, #FFF0F5 100%); }
+        .rule-icon.category { background: linear-gradient(135deg, #E8E4FF 0%, #F0EDFF 100%); }
+        .rule-icon.break { background: linear-gradient(135deg, #FFF9E8 0%, #FFFCF5 100%); }
+
+        .rule-info {
+            flex: 1;
+        }
+
+        .rule-title {
+            font-family: 'Nunito', sans-serif;
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+
+        .rule-desc {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .rule-toggle {
+            width: 48px;
+            height: 28px;
+            background: var(--primary);
+            border-radius: 14px;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .rule-toggle::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            width: 24px;
+            height: 24px;
+            background: white;
+            border-radius: 50%;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            transition: all 0.3s ease;
+        }
+
+        .rule-toggle.off {
+            background: var(--background);
+        }
+
+        .rule-toggle.off::after {
+            left: 2px;
+            right: auto;
+        }
+
+        /* Settings Page */
+        .settings-section {
+            margin-bottom: 24px;
+        }
+
+        .settings-item {
+            background: var(--surface);
+            border-radius: 16px;
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .settings-item:hover {
+            transform: translateX(4px);
+        }
+
+        .settings-item-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        .settings-item-icon.pink { background: #FFE5F0; }
+        .settings-item-icon.purple { background: #E8E4FF; }
+        .settings-item-icon.mint { background: #E8FFF8; }
+        .settings-item-icon.yellow { background: #FFF9E8; }
+
+        .settings-item-info {
+            flex: 1;
+        }
+
+        .settings-item-title {
+            font-family: 'Nunito', sans-serif;
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .settings-item-value {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .settings-arrow {
+            color: var(--text-secondary);
+        }
+
+        /* Report Page */
+        .report-card {
+            background: var(--surface);
+            border-radius: 24px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+        }
+
+        .report-title {
+            font-family: 'Nunito', sans-serif;
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 16px;
+        }
+
+        .chart-container {
+            height: 160px;
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-around;
+            padding: 0 10px;
+        }
+
+        .chart-bar {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .bar {
+            width: 32px;
+            border-radius: 10px 10px 6px 6px;
+            transition: all 0.3s ease;
+        }
+
+        .bar.mon { background: #EC8B9F; height: 80px; }
+        .bar.tue { background: #F0C5D0; height: 60px; }
+        .bar.wed { background: #F5D9E2; height: 100px; }
+        .bar.thu { background: #E8B8CA; height: 45px; }
+        .bar.fri { background: #D89AAA; height: 70px; }
+        .bar.sat { background: #C97A90; height: 90px; }
+        .bar.sun { background: #D89AAA; height: 55px; }
+
+        .bar-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .stat-item {
+            background: var(--surface);
+            border-radius: 20px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+        }
+
+        .stat-value {
+            font-family: 'Nunito', sans-serif;
+            font-size: 32px;
+            font-weight: 800;
+            color: var(--primary);
+            line-height: 1;
+            margin-bottom: 4px;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        .points-card {
+            background: linear-gradient(135deg, #FFD977 0%, #FFB347 100%);
+            border-radius: 24px;
+            padding: 24px;
+            text-align: center;
+            box-shadow: 0 8px 24px rgba(255, 179, 71, 0.3);
+        }
+
+        .points-value {
+            font-family: 'Nunito', sans-serif;
+            font-size: 64px;
+            font-weight: 800;
+            color: white;
+            line-height: 1;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .points-label {
+            font-size: 14px;
+            color: rgba(255,255,255,0.9);
+            font-weight: 600;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="mockup-container">
+
+        <!-- Screen 1: Home -->
+        <div class="phone-frame" style="position: relative;">
+            <div class="screen-label">首页 Home</div>
+            <div class="screen">
+                <div class="header">
+                    <h1>纹纹小伙伴</h1>
+                    <button class="icon-btn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Avatar Card -->
+                <div class="avatar-card">
+                    <div class="avatar">🌸</div>
+                    <div class="avatar-info">
+                        <h2>纹纹</h2>
+                        <p>新的一天开始啦～</p>
+                        <div class="status-badge">
+                            <span class="status-dot"></span>
+                            状态良好
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Usage Card -->
+                <div class="usage-card">
+                    <div class="usage-header">
+                        <h3>今日使用</h3>
+                        <span class="usage-time">更新于 刚刚</span>
+                    </div>
+                    <div class="time-display">
+                        <span class="number">65</span>
+                        <span class="unit">分钟 / 120分钟</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill"></div>
+                    </div>
+                    <div class="progress-labels">
+                        <span>已用 54%</span>
+                        <span>还剩 55分钟</span>
+                    </div>
+                </div>
+
+                <!-- App List -->
+                <div class="section-title">使用排行</div>
+                <div class="app-list">
+                    <div class="app-item">
+                        <div class="app-icon game">🎮</div>
+                        <div class="app-info">
+                            <div class="app-name">我的世界</div>
+                            <div class="app-time">25 分钟</div>
+                        </div>
+                        <span class="app-badge game">游戏</span>
+                    </div>
+                    <div class="app-item">
+                        <div class="app-icon video">📺</div>
+                        <div class="app-info">
+                            <div class="app-name">哔哩哔哩</div>
+                            <div class="app-time">18 分钟</div>
+                        </div>
+                        <span class="app-badge video">视频</span>
+                    </div>
+                    <div class="app-item">
+                        <div class="app-icon study">📚</div>
+                        <div class="app-info">
+                            <div class="app-name">洪恩识字</div>
+                            <div class="app-time">22 分钟</div>
+                        </div>
+                        <span class="app-badge study">学习</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom Nav -->
+            <div class="bottom-nav">
+                <div class="nav-item active">
+                    <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+                    <span>首页</span>
+                </div>
+                <div class="nav-item">
+                    <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                    <span>规则</span>
+                </div>
+                <div class="nav-item">
+                    <svg viewBox="0 0 24 24"><path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                    <span>我的</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Screen 2: Rules -->
+        <div class="phone-frame" style="position: relative;">
+            <div class="screen-label">规则 Rules</div>
+            <div class="screen">
+                <div class="header">
+                    <h1>使用规则</h1>
+                    <button class="icon-btn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <circle cx="12" cy="12" r="1"/>
+                            <circle cx="19" cy="12" r="1"/>
+                            <circle cx="5" cy="12" r="1"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="section-title" style="margin-bottom: 12px;">时间规则</div>
+
+                <div class="rule-card">
+                    <div class="rule-icon time">⏰</div>
+                    <div class="rule-info">
+                        <div class="rule-title">每日限额</div>
+                        <div class="rule-desc">每天最多使用 2 小时</div>
+                    </div>
+                    <div class="rule-toggle"></div>
+                </div>
+
+                <div class="rule-card">
+                    <div class="rule-icon time">🌙</div>
+                    <div class="rule-info">
+                        <div class="rule-title">睡眠时间</div>
+                        <div class="rule-desc">21:00 - 07:00 禁止使用</div>
+                    </div>
+                    <div class="rule-toggle"></div>
+                </div>
+
+                <div class="rule-card">
+                    <div class="rule-icon break">📖</div>
+                    <div class="rule-info">
+                        <div class="rule-title">学习时间</div>
+                        <div class="rule-desc">16:00 - 18:00 仅学习应用</div>
+                    </div>
+                    <div class="rule-toggle off"></div>
+                </div>
+
+                <div class="section-title" style="margin: 24px 0 12px;">应用分类</div>
+
+                <div class="rule-card">
+                    <div class="rule-icon category">🎮</div>
+                    <div class="rule-info">
+                        <div class="rule-title">游戏类</div>
+                        <div class="rule-desc">每天最多 1 小时</div>
+                    </div>
+                    <div class="rule-toggle"></div>
+                </div>
+
+                <div class="rule-card">
+                    <div class="rule-icon category">📺</div>
+                    <div class="rule-info">
+                        <div class="rule-title">视频类</div>
+                        <div class="rule-desc">每天最多 45 分钟</div>
+                    </div>
+                    <div class="rule-toggle"></div>
+                </div>
+
+                <div class="rule-card">
+                    <div class="rule-icon study">📚</div>
+                    <div class="rule-info">
+                        <div class="rule-title">学习类</div>
+                        <div class="rule-desc">不限制使用时间</div>
+                    </div>
+                    <div class="rule-toggle"></div>
+                </div>
+            </div>
+
+            <!-- Bottom Nav -->
+            <div class="bottom-nav">
+                <div class="nav-item">
+                    <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+                    <span>首页</span>
+                </div>
+                <div class="nav-item active">
+                    <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                    <span>规则</span>
+                </div>
+                <div class="nav-item">
+                    <svg viewBox="0 0 24 24"><path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                    <span>我的</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Screen 3: Settings -->
+        <div class="phone-frame" style="position: relative;">
+            <div class="screen-label">设置 Settings</div>
+            <div class="screen">
+                <div class="header">
+                    <h1>设置</h1>
+                </div>
+
+                <div class="settings-section">
+                    <div class="settings-item">
+                        <div class="settings-item-icon pink">🎨</div>
+                        <div class="settings-item-info">
+                            <div class="settings-item-title">主题风格</div>
+                            <div class="settings-item-value">樱花粉</div>
+                        </div>
+                        <span class="settings-arrow">›</span>
+                    </div>
+                    <div class="settings-item">
+                        <div class="settings-item-icon purple">🔔</div>
+                        <div class="settings-item-info">
+                            <div class="settings-item-title">提醒通知</div>
+                            <div class="settings-item-value">已开启</div>
+                        </div>
+                        <span class="settings-arrow">›</span>
+                    </div>
+                    <div class="settings-item">
+                        <div class="settings-item-icon mint">🔊</div>
+                        <div class="settings-item-info">
+                            <div class="settings-item-title">提醒音效</div>
+                            <div class="settings-item-value">轻柔</div>
+                        </div>
+                        <span class="settings-arrow">›</span>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <div class="settings-item">
+                        <div class="settings-item-icon yellow">💾</div>
+                        <div class="settings-item-info">
+                            <div class="settings-item-title">数据备份</div>
+                            <div class="settings-item-value">上次: 今天 03:00</div>
+                        </div>
+                        <span class="settings-arrow">›</span>
+                    </div>
+                    <div class="settings-item">
+                        <div class="settings-item-icon pink">👨‍👩‍👧</div>
+                        <div class="settings-item-info">
+                            <div class="settings-item-title">家长模式</div>
+                            <div class="settings-item-value">已设置密码</div>
+                        </div>
+                        <span class="settings-arrow">›</span>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <div class="settings-item">
+                        <div class="settings-item-icon purple">ℹ️</div>
+                        <div class="settings-item-info">
+                            <div class="settings-item-title">关于纹纹</div>
+                            <div class="settings-item-value">版本 1.0.0</div>
+                        </div>
+                        <span class="settings-arrow">›</span>
+                    </div>
+                    <div class="settings-item">
+                        <div class="settings-item-icon mint">💌</div>
+                        <div class="settings-item-info">
+                            <div class="settings-item-title">反馈建议</div>
+                            <div class="settings-item-value">帮助我们改进</div>
+                        </div>
+                        <span class="settings-arrow">›</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom Nav -->
+            <div class="bottom-nav">
+                <div class="nav-item">
+                    <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+                    <span>首页</span>
+                </div>
+                <div class="nav-item">
+                    <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                    <span>规则</span>
+                </div>
+                <div class="nav-item active">
+                    <svg viewBox="0 0 24 24"><path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                    <span>我的</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Screen 4: Report -->
+        <div class="phone-frame" style="position: relative;">
+            <div class="screen-label">报告 Report</div>
+            <div class="screen">
+                <div class="header">
+                    <h1>本周报告</h1>
+                    <button class="icon-btn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Points Card -->
+                <div class="points-card">
+                    <div class="points-value">186</div>
+                    <div class="points-label">阳光积分</div>
+                </div>
+
+                <!-- Weekly Chart -->
+                <div class="report-card">
+                    <div class="report-title">每日使用</div>
+                    <div class="chart-container">
+                        <div class="chart-bar">
+                            <div class="bar mon"></div>
+                            <span class="bar-label">一</span>
+                        </div>
+                        <div class="chart-bar">
+                            <div class="bar tue"></div>
+                            <span class="bar-label">二</span>
+                        </div>
+                        <div class="chart-bar">
+                            <div class="bar wed"></div>
+                            <span class="bar-label">三</span>
+                        </div>
+                        <div class="chart-bar">
+                            <div class="bar thu"></div>
+                            <span class="bar-label">四</span>
+                        </div>
+                        <div class="chart-bar">
+                            <div class="bar fri"></div>
+                            <span class="bar-label">五</span>
+                        </div>
+                        <div class="chart-bar">
+                            <div class="bar sat"></div>
+                            <span class="bar-label">六</span>
+                        </div>
+                        <div class="chart-bar">
+                            <div class="bar sun"></div>
+                            <span class="bar-label">日</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stats Grid -->
+                <div class="stat-grid">
+                    <div class="stat-item">
+                        <div class="stat-value">7.2</div>
+                        <div class="stat-label">本周平均(小时)</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">5</div>
+                        <div class="stat-label">达标天数</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">⭐</div>
+                        <div class="stat-label">表现优秀</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">🎮</div>
+                        <div class="stat-label">最爱: 我的世界</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom Nav -->
+            <div class="bottom-nav">
+                <div class="nav-item">
+                    <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+                    <span>首页</span>
+                </div>
+                <div class="nav-item">
+                    <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                    <span>规则</span>
+                </div>
+                <div class="nav-item active">
+                    <svg viewBox="0 0 24 24"><path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                    <span>我的</span>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</body>
+</html>

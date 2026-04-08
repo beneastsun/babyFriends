@@ -7,6 +7,7 @@ import android.os.Build
 import android.provider.Settings
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import com.qiaoqiao.qiaoqiao_companion.services.GuardService
 import com.qiaoqiao.qiaoqiao_companion.services.MonitorForegroundService
 import com.qiaoqiao.qiaoqiao_companion.utils.RomUtils
 
@@ -53,6 +54,15 @@ class ServiceChannel(private val context: Context) : MethodChannel.MethodCallHan
             }
             "openPowerSavingSettings" -> {
                 openPowerSavingSettings(result)
+            }
+            "startGuardService" -> {
+                startGuardService(result)
+            }
+            "stopGuardService" -> {
+                stopGuardService(result)
+            }
+            "isGuardServiceRunning" -> {
+                isGuardServiceRunning(result)
             }
             else -> {
                 result.notImplemented()
@@ -194,5 +204,36 @@ class ServiceChannel(private val context: Context) : MethodChannel.MethodCallHan
         } catch (e: Exception) {
             result.error("SETTINGS_ERROR", e.message, null)
         }
+    }
+
+    /**
+     * 启动守护服务
+     */
+    private fun startGuardService(result: MethodChannel.Result) {
+        try {
+            GuardService.start(context)
+            result.success(true)
+        } catch (e: Exception) {
+            result.error("SERVICE_ERROR", e.message, null)
+        }
+    }
+
+    /**
+     * 停止守护服务
+     */
+    private fun stopGuardService(result: MethodChannel.Result) {
+        try {
+            GuardService.stop(context)
+            result.success(true)
+        } catch (e: Exception) {
+            result.error("SERVICE_ERROR", e.message, null)
+        }
+    }
+
+    /**
+     * 检查守护服务是否正在运行
+     */
+    private fun isGuardServiceRunning(result: MethodChannel.Result) {
+        result.success(GuardService.isServiceRunning())
     }
 }
