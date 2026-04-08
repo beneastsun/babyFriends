@@ -8,6 +8,8 @@ import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
 import android.util.Log
+import com.qiaoqiao.qiaoqiao_companion.activities.AppLockOverlayActivity
+import com.qiaoqiao.qiaoqiao_companion.managers.AppLockManager
 import com.qiaoqiao.qiaoqiao_companion.services.GuardService
 import com.qiaoqiao.qiaoqiao_companion.services.MonitorForegroundService
 
@@ -25,7 +27,7 @@ class AlarmReceiver : BroadcastReceiver() {
         private const val REQUEST_CODE = 1001
         private const val ACTION_KEEP_ALIVE = "com.qiaoqiao.qiaoqiao_companion.KEEP_ALIVE"
         private const val ACTION_QUICK_RESTART = "com.qiaoqiao.qiaoqiao_companion.QUICK_RESTART"
-        private const val INTERVAL_MS = 60_000L // 1分钟
+        private const val INTERVAL_MS = 30_000L // 30秒（原60秒）
 
         /**
          * 设置定期闹钟
@@ -219,6 +221,11 @@ class AlarmReceiver : BroadcastReceiver() {
                 MonitorForegroundService.start(context)
             }
 
+            // 检查是否需要显示 AppLock
+            if (AppLockManager.shouldShowLock(context)) {
+                AppLockOverlayActivity.start(context)
+            }
+
             // 设置下一次闹钟
             setAlarm(context)
 
@@ -236,6 +243,11 @@ class AlarmReceiver : BroadcastReceiver() {
 
             // 启动主监控服务
             MonitorForegroundService.start(context)
+
+            // 检查是否需要显示 AppLock
+            if (AppLockManager.shouldShowLock(context)) {
+                AppLockOverlayActivity.start(context)
+            }
 
         } catch (e: Exception) {
             Log.e(TAG, "Error in quick restart", e)

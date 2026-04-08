@@ -43,4 +43,15 @@ object AppLockManager {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return prefs.getLong(KEY_LAST_TRIGGER_TIME, 0)
     }
+
+    /**
+     * 判断是否应该显示锁屏（跨进程安全）
+     * 条件：锁屏启用 + 最近 5 分钟内被触发过（即 App 被滑掉后需要重新锁定）
+     */
+    fun shouldShowLock(context: Context): Boolean {
+        if (!isLockEnabled(context)) return false
+        val lastTrigger = getLastTriggerTime(context)
+        val elapsed = System.currentTimeMillis() - lastTrigger
+        return lastTrigger > 0 && elapsed < 5 * 60 * 1000L
+    }
 }

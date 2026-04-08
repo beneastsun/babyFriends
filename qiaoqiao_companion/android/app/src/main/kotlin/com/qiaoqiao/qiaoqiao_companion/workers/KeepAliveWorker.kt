@@ -7,6 +7,8 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.qiaoqiao.qiaoqiao_companion.activities.AppLockOverlayActivity
+import com.qiaoqiao.qiaoqiao_companion.managers.AppLockManager
 import com.qiaoqiao.qiaoqiao_companion.receivers.AlarmReceiver
 import com.qiaoqiao.qiaoqiao_companion.services.GuardService
 import com.qiaoqiao.qiaoqiao_companion.services.MonitorForegroundService
@@ -72,6 +74,11 @@ class KeepAliveWorker(
 
             // 确保 AlarmManager 闹钟在运行
             AlarmReceiver.setAlarm(applicationContext)
+
+            // 检查是否需要显示 AppLock
+            if (AppLockManager.shouldShowLock(applicationContext)) {
+                AppLockOverlayActivity.start(applicationContext)
+            }
 
             Log.d(TAG, "Keep-alive check completed")
             Result.success()

@@ -102,6 +102,7 @@ class MonitorForegroundService : Service() {
     // 原生监控组件（Flutter 引擎死亡时仍能工作）
     private var monitorHandler: Handler? = null
     private val MONITOR_INTERVAL_MS = 5_000L // 5秒检查一次
+    private val INITIAL_DELAY_MS = 1_000L // 首次延迟1秒（原2秒）
     private var nativeRuleRepository: NativeRuleRepository? = null
     private var nativeRuleChecker: NativeRuleChecker? = null
     private var nativeOverlayManager: NativeOverlayManager? = null
@@ -137,6 +138,14 @@ class MonitorForegroundService : Service() {
             // null intent (START_STICKY 重建) 时也需要启动原生监控
             null -> {
                 startNativeMonitoring()
+                // START_STICKY 重建 = 被系统杀死后重启，检查是否需要显示 AppLock
+                if (AppLockManager.shouldShowLock(applicationContext)) {
+                    try {
+                        AppLockOverlayActivity.start(applicationContext)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to show app lock on restart", e)
+                    }
+                }
             }
         }
         return START_STICKY
@@ -254,8 +263,8 @@ class MonitorForegroundService : Service() {
             nativeOverlayManager = NativeOverlayManager(applicationContext)
             monitorHandler = Handler(Looper.getMainLooper())
 
-            // 首次延迟 2 秒启动，避免与其他初始化竞争
-            monitorHandler?.postDelayed(monitorRunnable, 2000)
+            // 首次延迟 1 秒启动（加快检测响应）
+            monitorHandler?.postDelayed(monitorRunnable, INITIAL_DELAY_MS)
             Log.d(TAG, "Native monitoring started")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start native monitoring", e)
@@ -343,7 +352,17 @@ class MonitorForegroundService : Service() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         Log.d(TAG, "Task removed by user")
 
-        // 始终尝试重启自身（不仅限于 AppLock 启用时）
+        // 1. 最先显示 AppLock（最重要，趁进程还活着）
+        if (AppLockManager.isLockEnabled(applicationContext)) {
+            Log.d(TAG, "App lock is enabled, showing overlay")
+            try {
+                AppLockOverlayActivity.start(applicationContext)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to show overlay", e)
+            }
+        }
+
+        // 2. 尝试重启自身
         try {
             val restartIntent = Intent(applicationContext, MonitorForegroundService::class.java)
             restartIntent.action = "START"
@@ -357,22 +376,12 @@ class MonitorForegroundService : Service() {
             Log.e(TAG, "Failed to restart service", e)
         }
 
-        // 同时设置闹钟作为备份重启机制
+        // 3. 设置闹钟作为备份重启机制
         try {
             AlarmReceiver.setQuickAlarm(applicationContext, 2000)
             AlarmReceiver.setAlarm(applicationContext)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to set alarm backup", e)
-        }
-
-        // 如果启用了防关闭锁，显示覆盖界面
-        if (AppLockManager.isLockEnabled(applicationContext)) {
-            Log.d(TAG, "App lock is enabled, showing overlay")
-            try {
-                AppLockOverlayActivity.start(applicationContext)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to show overlay", e)
-            }
         }
 
         super.onTaskRemoved(rootIntent)

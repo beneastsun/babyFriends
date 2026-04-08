@@ -18,6 +18,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.qiaoqiao.qiaoqiao_companion.MainActivity
 import com.qiaoqiao.qiaoqiao_companion.R
+import com.qiaoqiao.qiaoqiao_companion.activities.AppLockOverlayActivity
+import com.qiaoqiao.qiaoqiao_companion.managers.AppLockManager
 import com.qiaoqiao.qiaoqiao_companion.receivers.AlarmReceiver
 
 /**
@@ -37,7 +39,7 @@ class GuardService : Service() {
         private const val CHANNEL_ID = "qiaoqiao_guard_channel"
         private const val CHANNEL_NAME = "纹纹守护进程"
         private const val NOTIFICATION_ID = 1002
-        private const val CHECK_INTERVAL_MS = 30_000L // 30秒检查一次
+        private const val CHECK_INTERVAL_MS = 10_000L // 10秒检查一次（原30秒）
 
         @Volatile
         private var isRunning = false
@@ -251,6 +253,14 @@ class GuardService : Service() {
                 statusText = "重启监控服务中..."
                 updateStatusNotification()
                 MonitorForegroundService.start(applicationContext)
+                // 主服务被杀重启，检查是否需要显示 AppLock
+                if (AppLockManager.shouldShowLock(applicationContext)) {
+                    try {
+                        AppLockOverlayActivity.start(applicationContext)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to show app lock overlay", e)
+                    }
+                }
             } else {
                 statusText = "监控服务正常运行"
             }

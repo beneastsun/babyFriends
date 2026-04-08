@@ -33,7 +33,8 @@ class AppLockOverlayActivity : Activity() {
 
         /**
          * 启动锁屏覆盖
-         * 使用全屏通知来在 Android 10+ 上启动 Activity
+         * Android 10+ 使用全屏通知（后台 startActivity 受限，会闪退）
+         * Android 9 及以下直接启动 Activity
          */
         fun start(context: Context) {
             Log.d(TAG, "start() called - preparing to show lock overlay")
@@ -41,7 +42,14 @@ class AppLockOverlayActivity : Activity() {
             // 记录触发时间
             AppLockManager.setLastTriggerTime(context, System.currentTimeMillis())
 
-            // 方法1: 直接尝试启动Activity
+            // Android 10+ 后台启动 Activity 受限，直接使用全屏通知
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                Log.d(TAG, "Android 10+, using full-screen notification")
+                showFullScreenNotification(context)
+                return
+            }
+
+            // Android 9 及以下：直接尝试启动Activity
             try {
                 val intent = Intent(context, AppLockOverlayActivity::class.java).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or
@@ -53,7 +61,6 @@ class AppLockOverlayActivity : Activity() {
                 Log.d(TAG, "Direct startActivity called")
             } catch (e: Exception) {
                 Log.e(TAG, "Direct startActivity failed, trying notification method", e)
-                // 如果直接启动失败，使用全屏通知方式
                 showFullScreenNotification(context)
             }
         }
