@@ -23,6 +23,11 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val APP_CHANNEL = "com.qiaoqiao.qiaoqiao_companion/app"
+
+        /** Flutter 引擎是否存活，供原生监控服务判断是否需要显示覆盖层 */
+        @Volatile
+        var isFlutterAlive = false
+            private set
     }
 
     private val screenReceiver = object : BroadcastReceiver() {
@@ -83,6 +88,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        isFlutterAlive = false
         super.onDestroy()
         try {
             unregisterReceiver(screenReceiver)
@@ -93,6 +99,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        isFlutterAlive = true
 
         // 注册使用统计通道
         val usageStatsChannel = MethodChannel(

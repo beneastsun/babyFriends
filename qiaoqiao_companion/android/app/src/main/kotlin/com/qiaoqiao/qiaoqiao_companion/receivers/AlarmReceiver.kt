@@ -8,7 +8,6 @@ import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
 import android.util.Log
-import com.qiaoqiao.qiaoqiao_companion.activities.AlarmProxyActivity
 import com.qiaoqiao.qiaoqiao_companion.services.GuardService
 import com.qiaoqiao.qiaoqiao_companion.services.MonitorForegroundService
 
@@ -30,21 +29,21 @@ class AlarmReceiver : BroadcastReceiver() {
 
         /**
          * 设置定期闹钟
-         * 使用 setAlarmClock() + Activity PendingIntent
+         * 使用 setAlarmClock() + BroadcastReceiver PendingIntent
          *
-         * 关键：使用 Activity 而非 BroadcastReceiver，因为：
-         * - MIUI SwipeUpClean 设置 stopped=true 后，广播接收器被阻止
-         * - 但系统（system_server）有权限启动 Activity，即使 App 处于 stopped 状态
-         * - AlarmProxyActivity 是透明的，启动服务后立即 finish()
+         * 使用 BroadcastReceiver 而非 Activity，因为：
+         * - Activity PendingIntent 每60秒启动 Activity 会导致屏幕闪烁
+         * - MIUI force-stop 会取消所有闹钟（无论 Activity 还是 Broadcast），Activity 无额外优势
+         * - BroadcastReceiver 在标准 Android 上正常工作
          */
         fun setAlarm(context: Context) {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
-            // 使用 Activity PendingIntent — 系统可以在 stopped 状态下启动 Activity
-            val alarmIntent = Intent(context, AlarmProxyActivity::class.java).apply {
-                action = AlarmProxyActivity.ACTION_RESTART_SERVICES
+            // 使用 BroadcastReceiver PendingIntent — 无闪烁
+            val alarmIntent = Intent(context, AlarmReceiver::class.java).apply {
+                action = ACTION_KEEP_ALIVE
             }
-            val pendingIntent = PendingIntent.getActivity(
+            val pendingIntent = PendingIntent.getBroadcast(
                 context,
                 REQUEST_CODE,
                 alarmIntent,
@@ -65,7 +64,7 @@ class AlarmReceiver : BroadcastReceiver() {
                         showIntent
                     )
                     alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
-                    Log.d(TAG, "Alarm set via setAlarmClock+Activity for ${INTERVAL_MS}ms")
+                    Log.d(TAG, "Alarm set via setAlarmClock+Broadcast for ${INTERVAL_MS}ms")
                 } else {
                     alarmManager.setExact(
                         AlarmManager.ELAPSED_REALTIME_WAKEUP,
@@ -97,14 +96,15 @@ class AlarmReceiver : BroadcastReceiver() {
 
         /**
          * 设置快速重启闹钟（用于任务被移除时）
+         * 使用 BroadcastReceiver 避免闪烁
          */
         fun setQuickAlarm(context: Context, delayMs: Long) {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
-            val alarmIntent = Intent(context, AlarmProxyActivity::class.java).apply {
-                action = AlarmProxyActivity.ACTION_RESTART_SERVICES
+            val alarmIntent = Intent(context, AlarmReceiver::class.java).apply {
+                action = ACTION_QUICK_RESTART
             }
-            val pendingIntent = PendingIntent.getActivity(
+            val pendingIntent = PendingIntent.getBroadcast(
                 context,
                 REQUEST_CODE + 1,
                 alarmIntent,

@@ -17,7 +17,7 @@ object AppLockManager {
      */
     fun isLockEnabled(context: Context): Boolean {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getBoolean(KEY_LOCK_ENABLED, true) // 默认启用
+        return prefs.getBoolean(KEY_LOCK_ENABLED, false) // 默认关闭，家长主动开启
     }
 
     /**

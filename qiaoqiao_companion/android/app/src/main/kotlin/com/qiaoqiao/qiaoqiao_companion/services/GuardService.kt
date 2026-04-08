@@ -18,7 +18,6 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.qiaoqiao.qiaoqiao_companion.MainActivity
 import com.qiaoqiao.qiaoqiao_companion.R
-import com.qiaoqiao.qiaoqiao_companion.managers.AppLockManager
 import com.qiaoqiao.qiaoqiao_companion.receivers.AlarmReceiver
 
 /**
@@ -256,11 +255,6 @@ class GuardService : Service() {
                 statusText = "监控服务正常运行"
             }
 
-            // 检查应用是否需要保护且未运行
-            if (AppLockManager.isLockEnabled(applicationContext)) {
-                checkAppRunning()
-            }
-
             // 更新最终状态
             updateStatusNotification()
         } catch (e: Exception) {
@@ -291,41 +285,6 @@ class GuardService : Service() {
         }
 
         return false
-    }
-
-    private fun checkAppRunning() {
-        // 通过 ActivityManager 检查应用是否在前台
-        val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val appProcesses = activityManager.runningAppProcesses
-            var isAppForeground = false
-
-            appProcesses?.forEach { processInfo ->
-                if (processInfo.processName == packageName) {
-                    isAppForeground = processInfo.importance == android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
-                }
-            }
-
-            if (!isAppForeground && !MonitorForegroundService.isServiceRunning()) {
-                Log.d(TAG, "App not in foreground and service stopped, restarting...")
-                // 重启应用到主页面
-                restartApp()
-            }
-        }
-    }
-
-    private fun restartApp() {
-        try {
-            val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-            launchIntent?.let {
-                it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-                startActivity(it)
-                Log.d(TAG, "App restarted")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to restart app", e)
-        }
     }
 
     private fun stopGuardService() {

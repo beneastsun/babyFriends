@@ -292,7 +292,10 @@ class MonitorForegroundService : Service() {
                 if (foregroundApp != null) {
                     val result = nativeRuleChecker!!.checkApp(foregroundApp)
                     if (result.blocked) {
-                        nativeOverlayManager!!.showLockOverlay(result.reason, foregroundApp)
+                        // Flutter 引擎存活时由 Flutter 侧处理覆盖层，避免弹两个窗口
+                        if (!com.qiaoqiao.qiaoqiao_companion.MainActivity.isFlutterAlive) {
+                            nativeOverlayManager!!.showLockOverlay(result.reason, foregroundApp)
+                        }
                         lastBlockedPackage = foregroundApp
                         Log.d(TAG, "Blocked $foregroundApp: ${result.reason}")
                     } else if (lastBlockedPackage == foregroundApp) {
