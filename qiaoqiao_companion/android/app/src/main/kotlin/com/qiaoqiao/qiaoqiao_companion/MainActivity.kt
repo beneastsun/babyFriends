@@ -22,8 +22,6 @@ import com.qiaoqiao.qiaoqiao_companion.services.MonitorForegroundService
 class MainActivity : FlutterActivity() {
 
     companion object {
-        private const val APP_CHANNEL = "com.qiaoqiao.qiaoqiao_companion/app"
-
         /** Flutter 引擎是否存活，供原生监控服务判断是否需要显示覆盖层 */
         @Volatile
         var isFlutterAlive = false
@@ -131,7 +129,7 @@ class MainActivity : FlutterActivity() {
         // 注册应用控制通道
         val appChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
-            APP_CHANNEL
+            "${applicationContext.packageName}/app"
         )
         appChannel.setMethodCallHandler { call, result ->
             when (call.method) {

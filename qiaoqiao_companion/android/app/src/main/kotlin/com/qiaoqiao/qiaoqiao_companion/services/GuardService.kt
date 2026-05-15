@@ -154,8 +154,11 @@ class GuardService : Service() {
         // 获取进程信息
         val processInfo = "进程: ${android.os.Process.myPid()}"
 
+        // 获取应用名称
+        val appName = getString(R.string.app_name)
+        
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("纹纹守护中 [PID:${android.os.Process.myPid()}]")
+            .setContentTitle("${appName}守护中 [PID:${android.os.Process.myPid()}]")
             .setContentText("$statusText | 检查次数: $checkCount")
             .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(pendingIntent)

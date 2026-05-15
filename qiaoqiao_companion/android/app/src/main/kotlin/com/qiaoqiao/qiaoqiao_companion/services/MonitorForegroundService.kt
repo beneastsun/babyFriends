@@ -96,7 +96,7 @@ class MonitorForegroundService : Service() {
     }
 
     private var notificationManager: NotificationManager? = null
-    private var currentTitle = "纹纹守护中"
+    private var currentTitle: String = ""
     private var currentMessage = "正在保护你的健康使用习惯"
 
     // 原生监控组件（Flutter 引擎死亡时仍能工作）
@@ -112,6 +112,8 @@ class MonitorForegroundService : Service() {
         super.onCreate()
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         createNotificationChannel()
+        // 初始化应用名称
+        currentTitle = getString(R.string.app_name) + "守护中"
         // 在 onCreate 中立即调用 startForeground，满足 Android 12+ 5秒超时要求
         // 同时确保 START_STICKY 重建服务时（intent=null）也能正确启动前台服务
         startAsForeground()
@@ -158,12 +160,13 @@ class MonitorForegroundService : Service() {
      */
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val appName = getString(R.string.app_name)
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 CHANNEL_NAME,
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "保持纹纹小伙伴在后台运行"
+                description = "保持${appName}在后台运行"
                 setShowBadge(false)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }

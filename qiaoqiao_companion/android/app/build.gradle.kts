@@ -1,3 +1,6 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -5,8 +8,18 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// 从 local.properties 读取应用ID配置
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localProperties.load(FileInputStream(localPropertiesFile))
+}
+
+val appApplicationId = localProperties.getProperty("app.applicationId", "com.qiaoqiao.qiaoqiao_companion")
+val appAppName = localProperties.getProperty("app.appName", "纹纹小伙伴")
+
 android {
-    namespace = "com.qiaoqiao.qiaoqiao_companion"
+    namespace = "com.qiaoqiao.qiaoqiao_companion"  // 保持原有namespace，R类使用此包名
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -16,12 +29,12 @@ android {
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
+        jvmTarget = "17"
     }
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.qiaoqiao.qiaoqiao_companion"
+        applicationId = appApplicationId
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

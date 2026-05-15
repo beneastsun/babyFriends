@@ -102,10 +102,13 @@ class AppLockOverlayActivity : Activity() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
+            // 获取应用名称
+            val appName = context.getString(R.string.app_name)
+            
             // 创建全屏通知
             val notification = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle("纹纹小伙伴正在运行中")
+                .setContentTitle("${appName}正在运行中")
                 .setContentText("点击返回应用")
                 .setPriority(NotificationCompat.PRIORITY_MAX)
                 .setCategory(NotificationCompat.CATEGORY_ALARM)

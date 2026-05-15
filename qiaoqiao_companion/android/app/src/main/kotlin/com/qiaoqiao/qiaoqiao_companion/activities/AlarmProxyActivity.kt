@@ -24,7 +24,7 @@ class AlarmProxyActivity : Activity() {
 
     companion object {
         private const val TAG = "AlarmProxy"
-        const val ACTION_RESTART_SERVICES = "com.qiaoqiao.qiaoqiao_companion.RESTART_SERVICES"
+        const val ACTION_RESTART_SERVICES = "RESTART_SERVICES"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
