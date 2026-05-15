@@ -51,6 +51,10 @@ class UsageMonitorService {
   bool _countdownWidgetShowing = false;
   String? _countdownTriggerApp; // 触发倒计时的应用
 
+  // === 秒表悬浮窗状态 ===
+  bool _stopwatchWidgetShowing = false;
+  DateTime? _lastStopTime; // 上次停止使用监控应用的时间
+
   /// 监控间隔（秒）- 从系统同步数据的间隔
   static const int monitorIntervalSeconds = 5;
 
@@ -109,6 +113,7 @@ class UsageMonitorService {
   /// 处理连续使用跟踪的应用切换
   Future<void> _handleContinuousUsageTransition(String? currentApp, DateTime now) async {
     final monitoredApps = _ref.read(monitoredAppsProvider);
+    final settings = _ref.read(continuousUsageSettingsProvider);
 
     // 计算上次轮询以来的时间
     final elapsedSeconds = _lastPollTime != null
@@ -139,16 +144,163 @@ class UsageMonitorService {
       }
       _currentSessionApp = currentApp;
       _isSessionActive = true;
+      
+      // 显示秒表悬浮窗（计时器模式）
+      await _showStopwatchWidget();
+      
+      // 重置停止时间
+      _lastStopTime = null;
     } else {
       // 离开监控应用（息屏或切换到非监控app）
       // 关键：不重置 _currentSessionApp，保留它用于5分钟内恢复
       // 只设置 _isSessionActive = false，停止累加时间
       if (_isSessionActive) {
         print('[UsageMonitor] Session paused (not tracking), currentApp: $currentApp');
+        // 记录停止时间
+        _lastStopTime = now;
       }
       _isSessionActive = false;
       // 不设置 _currentSessionApp = null！
+      
+      // 检查是否需要隐藏计时器
+      await _checkHideStopwatchAfterRest(now, settings);
     }
+  }
+
+  /// 显示秒表悬浮窗（倒计时模式）
+  Future<void> _showStopwatchWidget() async {
+    // 如果倒计时已经在显示，不显示新的
+    if (_countdownWidgetShowing || _stopwatchWidgetShowing) {
+      return;
+    }
+
+    final settings = _ref.read(continuousUsageSettingsProvider);
+    if (!settings.enabled) {
+      // 未启用连续使用限制，不显示悬浮窗
+      return;
+    }
+
+    final session = await _continuousUsageService.getActiveSession();
+    if (session == null) {
+      return;
+    }
+
+    // 计算剩余时间
+    final limitSeconds = settings.limitMinutes * 60;
+    final remainingSeconds = limitSeconds - session.totalDurationSeconds;
+
+    if (remainingSeconds <= 0) {
+      // 已经超过限制，不显示
+      return;
+    }
+    
+    // 始终显示倒计时，从剩余时间开始
+    await _showCountdownFromRemaining(remainingSeconds.toInt());
+  }
+
+  /// 从剩余时间开始显示倒计时
+  Future<void> _showCountdownFromRemaining(int remainingSeconds) async {
+    if (_countdownWidgetShowing || _stopwatchWidgetShowing) {
+      print('[UsageMonitor] _showCountdownFromRemaining - widget already showing, skip');
+      return;
+    }
+
+    _stopwatchWidgetShowing = true;
+    
+    print('[UsageMonitor] _showCountdownFromRemaining - showing countdown from: ${remainingSeconds}s (${remainingSeconds ~/ 60}分钟)');
+    
+    // 显示倒计时悬浮窗，从剩余时间开始
+    await OverlayService.showCountdownWidget(
+      totalSeconds: remainingSeconds,
+      onEnded: () {
+        print('[UsageMonitor] Countdown ended!');
+        _stopwatchWidgetShowing = false;
+        _countdownWidgetShowing = false;
+        // 倒计时结束，触发强制休息
+        if (_currentSessionApp != null) {
+          _triggerForcedRestAfterCountdown(_currentSessionApp!);
+        }
+      },
+      onAlert: (alertType) {
+        print('[UsageMonitor] Countdown alert: $alertType');
+        if (_currentSessionApp != null) {
+          _handleCountdownAlert(_currentSessionApp!, alertType);
+        }
+      },
+    );
+  }
+
+  /// 检查是否在休息后隐藏计时器
+  Future<void> _checkHideStopwatchAfterRest(DateTime now, ContinuousUsageSettings settings) async {
+    if (_lastStopTime == null) {
+      return;
+    }
+
+    // 计算从停止到现在的时间
+    final restDuration = now.difference(_lastStopTime!);
+    final resetAfterRestSeconds = settings.resetAfterRestSeconds;
+
+    // 如果休息时间超过设定的阈值，隐藏计时器并重置会话
+    if (restDuration.inSeconds >= resetAfterRestSeconds) {
+      print('[UsageMonitor] Rest duration exceeded threshold, hiding stopwatch and resetting session');
+      
+      // 隐藏计时器
+      await _hideStopwatchWidget();
+      
+      // 重置连续使用会话
+      await _resetContinuousSession();
+      
+      // 清除停止时间
+      _lastStopTime = null;
+    }
+  }
+
+  /// 隐藏秒表悬浮窗
+  Future<void> _hideStopwatchWidget() async {
+    if (_stopwatchWidgetShowing) {
+      await OverlayService.hideCountdownWidget();
+      _stopwatchWidgetShowing = false;
+    }
+  }
+
+  /// 重置连续使用会话
+  Future<void> _resetContinuousSession() async {
+    final session = await _continuousUsageService.getActiveSession();
+    if (session != null) {
+      // 停用当前会话
+      await _continuousUsageService.restoreSession(); // 这会停用超过阈值的会话
+      print('[UsageMonitor] Continuous session reset after rest period');
+    }
+  }
+
+  /// 切换到倒计时模式
+  Future<void> _switchToCountdownMode(int remainingSeconds) async {
+    if (_countdownWidgetShowing) return;
+
+    _countdownWidgetShowing = true;
+    _stopwatchWidgetShowing = false;
+
+    // 先隐藏当前的悬浮窗（如果有）
+    await OverlayService.hideCountdownWidget();
+    
+    // 显示新的倒计时悬浮窗
+    await OverlayService.showCountdownWidget(
+      totalSeconds: remainingSeconds,
+      onEnded: () {
+        _countdownWidgetShowing = false;
+        // 倒计时结束，触发强制休息
+        if (_currentSessionApp != null) {
+          _triggerForcedRestAfterCountdown(_currentSessionApp!);
+        }
+      },
+      onAlert: (alertType) {
+        if (_currentSessionApp != null) {
+          _handleCountdownAlert(_currentSessionApp!, alertType);
+        }
+      },
+    );
+
+    print('[UsageMonitor] Switched to countdown mode, remaining: ${remainingSeconds}s');
   }
 
   /// 同步系统统计数据并检查规则

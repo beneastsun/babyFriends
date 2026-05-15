@@ -200,6 +200,11 @@ class ContinuousUsageService {
     final session = await _sessionDao.getRestingSession(_today());
     return session?.remainingRestSeconds;
   }
+
+  /// 获取当前活跃会话
+  Future<ContinuousSession?> getActiveSession() async {
+    return await _sessionDao.getActiveSession(_today());
+  }
 }
 
 final continuousUsageServiceProvider = Provider<ContinuousUsageService>((ref) {
