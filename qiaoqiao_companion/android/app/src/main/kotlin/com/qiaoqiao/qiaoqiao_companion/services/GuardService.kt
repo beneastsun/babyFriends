@@ -1,5 +1,6 @@
 package com.qiaoqiao.qiaoqiao_companion.services
 
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -13,11 +14,13 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.qiaoqiao.qiaoqiao_companion.MainActivity
 import com.qiaoqiao.qiaoqiao_companion.R
+import com.qiaoqiao.qiaoqiao_companion.activities.AlarmProxyActivity
 import com.qiaoqiao.qiaoqiao_companion.activities.AppLockOverlayActivity
 import com.qiaoqiao.qiaoqiao_companion.managers.AppLockManager
 import com.qiaoqiao.qiaoqiao_companion.receivers.AlarmReceiver
@@ -127,10 +130,12 @@ class GuardService : Service() {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_MIN
+                NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "守护纹纹小伙伴运行"
                 setShowBadge(false)
+                setSound(null, null)
+                enableVibration(false)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
             notificationManager?.createNotificationChannel(channel)
@@ -166,7 +171,7 @@ class GuardService : Service() {
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setStyle(NotificationCompat.BigTextStyle()
                 .bigText("$statusText\n$processInfo | 检查: $checkCount | 上次: ${if (lastCheckTime > 0) java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(lastCheckTime)) else "无"}"))
             .build()
@@ -343,14 +348,52 @@ class GuardService : Service() {
             Log.e(TAG, "Failed to self-restart", e)
         }
 
-        // 2. 设置闹钟作为备份重启机制
+        // 2. 设置多种类型的冗余闹钟
         try {
-            AlarmReceiver.setQuickAlarm(applicationContext, 2000)
-            AlarmReceiver.setAlarm(applicationContext)
+            scheduleRedundantAlarms(applicationContext)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to set alarm", e)
+            Log.e(TAG, "Failed to set redundant alarms", e)
         }
 
         super.onTaskRemoved(rootIntent)
+    }
+
+    /**
+     * 设置多种类型的冗余闹钟，增加至少一种在 MIUI force-stop 后幸存概率
+     */
+    private fun scheduleRedundantAlarms(context: Context) {
+        // 类型 A: setAlarmClock + AlarmProxyActivity（主要方案）
+        AlarmReceiver.setAlarm(context)
+        AlarmReceiver.setQuickAlarm(context, 2000)
+
+        // 类型 B: setExactAndAllowWhileIdle + AlarmProxyActivity（备份方案）
+        try {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val proxyIntent = Intent(context, AlarmProxyActivity::class.java).apply {
+                action = "REDUNDANT_KEEP_ALIVE"
+            }
+            val proxyPending = PendingIntent.getActivity(
+                context,
+                3002,
+                proxyIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    SystemClock.elapsedRealtime() + 8_000,
+                    proxyPending
+                )
+            } else {
+                alarmManager.setExact(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    SystemClock.elapsedRealtime() + 8_000,
+                    proxyPending
+                )
+            }
+            Log.d(TAG, "Redundant alarm set for 8s")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to set redundant alarm", e)
+        }
     }
 }

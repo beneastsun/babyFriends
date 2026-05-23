@@ -1,5 +1,6 @@
 package com.qiaoqiao.qiaoqiao_companion.services
 
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -12,11 +13,13 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.qiaoqiao.qiaoqiao_companion.MainActivity
 import com.qiaoqiao.qiaoqiao_companion.R
+import com.qiaoqiao.qiaoqiao_companion.activities.AlarmProxyActivity
 import com.qiaoqiao.qiaoqiao_companion.activities.AppLockOverlayActivity
 import com.qiaoqiao.qiaoqiao_companion.managers.AppLockManager
 import com.qiaoqiao.qiaoqiao_companion.monitor.NativeOverlayManager
@@ -164,10 +167,12 @@ class MonitorForegroundService : Service() {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "保持${appName}在后台运行"
                 setShowBadge(false)
+                setSound(null, null)
+                enableVibration(false)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
             notificationManager?.createNotificationChannel(channel)
@@ -197,7 +202,7 @@ class MonitorForegroundService : Service() {
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
     }
 
@@ -351,6 +356,10 @@ class MonitorForegroundService : Service() {
 
     /**
      * 当任务被移除时调用（用户在最近任务中滑掉App）
+     *
+     * MIUI force-stop 会取消 AlarmManager 闹钟，但 setAlarmClock 类型
+     * 在某些 MIUI 版本上可能幸存。使用多种 PendingIntent 类型和
+     * 多种闹钟调度方式增加幸存概率。
      */
     override fun onTaskRemoved(rootIntent: Intent?) {
         Log.d(TAG, "Task removed by user")
@@ -365,7 +374,7 @@ class MonitorForegroundService : Service() {
             }
         }
 
-        // 2. 尝试重启自身
+        // 2. 尝试重启自身（趁进程还活着）
         try {
             val restartIntent = Intent(applicationContext, MonitorForegroundService::class.java)
             restartIntent.action = "START"
@@ -379,14 +388,95 @@ class MonitorForegroundService : Service() {
             Log.e(TAG, "Failed to restart service", e)
         }
 
-        // 3. 设置闹钟作为备份重启机制
+        // 3. 设置多种类型的冗余闹钟（增加幸存概率）
         try {
-            AlarmReceiver.setQuickAlarm(applicationContext, 2000)
-            AlarmReceiver.setAlarm(applicationContext)
+            scheduleRedundantAlarms(applicationContext)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to set alarm backup", e)
+            Log.e(TAG, "Failed to schedule redundant alarms", e)
         }
 
         super.onTaskRemoved(rootIntent)
+    }
+
+    /**
+     * 设置多种类型的冗余闹钟
+     *
+     * MIUI 的 force-stop 取消闹钟行为因版本而异，使用多种 PendingIntent
+     * 类型（Activity / ForegroundService）和多种调度方式
+     * （setAlarmClock / setExactAndAllowWhileIdle）增加至少一种幸存概率。
+     */
+    private fun scheduleRedundantAlarms(context: Context) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+
+        // 类型 A: setAlarmClock + AlarmProxyActivity（当前主要方案）
+        AlarmReceiver.setAlarm(context)
+        AlarmReceiver.setQuickAlarm(context, 2000)
+
+        // 类型 B: setExactAndAllowWhileIdle + ForegroundService（直接重启服务，无Activity开销）
+        try {
+            val fgIntent = Intent(context, MonitorForegroundService::class.java).apply {
+                action = "START"
+            }
+            val fgPending = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                PendingIntent.getForegroundService(
+                    context,
+                    2001,
+                    fgIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            } else {
+                PendingIntent.getService(
+                    context,
+                    2001,
+                    fgIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    SystemClock.elapsedRealtime() + 5_000,
+                    fgPending
+                )
+            } else {
+                alarmManager.setExact(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    SystemClock.elapsedRealtime() + 5_000,
+                    fgPending
+                )
+            }
+            Log.d(TAG, "Redundant alarm (ForegroundService) set for 5s")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to set ForegroundService alarm", e)
+        }
+
+        // 类型 C: setExactAndAllowWhileIdle + AlarmProxyActivity（延迟稍长，防撞车）
+        try {
+            val proxyIntent = Intent(context, AlarmProxyActivity::class.java).apply {
+                action = "REDUNDANT_KEEP_ALIVE"
+            }
+            val proxyPending = PendingIntent.getActivity(
+                context,
+                2002,
+                proxyIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    SystemClock.elapsedRealtime() + 10_000,
+                    proxyPending
+                )
+            } else {
+                alarmManager.setExact(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    SystemClock.elapsedRealtime() + 10_000,
+                    proxyPending
+                )
+            }
+            Log.d(TAG, "Redundant alarm (AlarmProxyActivity) set for 10s")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to set ProxyActivity alarm", e)
+        }
     }
 }

@@ -8,17 +8,21 @@ import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
 import android.util.Log
+import com.qiaoqiao.qiaoqiao_companion.activities.AlarmProxyActivity
 import com.qiaoqiao.qiaoqiao_companion.activities.AppLockOverlayActivity
 import com.qiaoqiao.qiaoqiao_companion.managers.AppLockManager
 import com.qiaoqiao.qiaoqiao_companion.services.GuardService
 import com.qiaoqiao.qiaoqiao_companion.services.MonitorForegroundService
 
 /**
- * 闹钟广播接收器
+ * 闹钟工具类
  * 作为最可靠的保活机制，即使进程被杀死也能唤醒
  *
- * 关键：使用 setAlarmClock() 设置闹钟，这是 Android 优先级最高的闹钟类型，
- * 即使 MIUI 等国产 ROM 也不会轻易取消这种闹钟
+ * 关键：使用 setAlarmClock() + AlarmProxyActivity 绕过 MIUI force-stop 限制。
+ * 不直接使用 BroadcastReceiver 因为 MIUI force-stop 后 App 处于 stopped=true 状态，
+ * BroadcastReceiver 无法接收广播，但 Activity PendingIntent 仍能被系统唤醒。
+ *
+ * 闹钟触发 → 系统启动 AlarmProxyActivity（透明） → 重启服务 → finish()
  */
 class AlarmReceiver : BroadcastReceiver() {
 
@@ -31,21 +35,22 @@ class AlarmReceiver : BroadcastReceiver() {
 
         /**
          * 设置定期闹钟
-         * 使用 setAlarmClock() + BroadcastReceiver PendingIntent
+         * 使用 setAlarmClock() + AlarmProxyActivity (Activity PendingIntent)
          *
-         * 使用 BroadcastReceiver 而非 Activity，因为：
-         * - Activity PendingIntent 每60秒启动 Activity 会导致屏幕闪烁
-         * - MIUI force-stop 会取消所有闹钟（无论 Activity 还是 Broadcast），Activity 无额外优势
-         * - BroadcastReceiver 在标准 Android 上正常工作
+         * 使用 Activity 而非 BroadcastReceiver，因为：
+         * - MIUI force-stop 会将 App 设为 stopped=true 状态
+         * - stopped=true 时 BroadcastReceiver 无法接收任何广播
+         * - 但 system_server 有权限启动 Activity，即使 App 处于 stopped 状态
+         * - AlarmProxyActivity 是透明的，启动服务后立即 finish，不会闪烁
          */
         fun setAlarm(context: Context) {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
-            // 使用 BroadcastReceiver PendingIntent — 无闪烁
-            val alarmIntent = Intent(context, AlarmReceiver::class.java).apply {
+            // 使用 AlarmProxyActivity — 透明 Activity，可绕过 MIUI force-stop 的广播限制
+            val alarmIntent = Intent(context, AlarmProxyActivity::class.java).apply {
                 action = ACTION_KEEP_ALIVE
             }
-            val pendingIntent = PendingIntent.getBroadcast(
+            val pendingIntent = PendingIntent.getActivity(
                 context,
                 REQUEST_CODE,
                 alarmIntent,
@@ -66,7 +71,7 @@ class AlarmReceiver : BroadcastReceiver() {
                         showIntent
                     )
                     alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
-                    Log.d(TAG, "Alarm set via setAlarmClock+Broadcast for ${INTERVAL_MS}ms")
+                    Log.d(TAG, "Alarm set via setAlarmClock+ProxyActivity for ${INTERVAL_MS}ms")
                 } else {
                     alarmManager.setExact(
                         AlarmManager.ELAPSED_REALTIME_WAKEUP,
@@ -98,15 +103,15 @@ class AlarmReceiver : BroadcastReceiver() {
 
         /**
          * 设置快速重启闹钟（用于任务被移除时）
-         * 使用 BroadcastReceiver 避免闪烁
+         * 使用 AlarmProxyActivity 避免 BroadcastReceiver 在 force-stop 后失效
          */
         fun setQuickAlarm(context: Context, delayMs: Long) {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
-            val alarmIntent = Intent(context, AlarmReceiver::class.java).apply {
+            val alarmIntent = Intent(context, AlarmProxyActivity::class.java).apply {
                 action = ACTION_QUICK_RESTART
             }
-            val pendingIntent = PendingIntent.getBroadcast(
+            val pendingIntent = PendingIntent.getActivity(
                 context,
                 REQUEST_CODE + 1,
                 alarmIntent,
@@ -163,10 +168,10 @@ class AlarmReceiver : BroadcastReceiver() {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
             // 取消 KEEP_ALIVE 闹钟
-            val keepIntent = Intent(context, AlarmReceiver::class.java).apply {
+            val keepIntent = Intent(context, AlarmProxyActivity::class.java).apply {
                 action = ACTION_KEEP_ALIVE
             }
-            val keepPending = PendingIntent.getBroadcast(
+            val keepPending = PendingIntent.getActivity(
                 context,
                 REQUEST_CODE,
                 keepIntent,
@@ -174,10 +179,10 @@ class AlarmReceiver : BroadcastReceiver() {
             )
 
             // 取消 QUICK_RESTART 闹钟
-            val quickIntent = Intent(context, AlarmReceiver::class.java).apply {
+            val quickIntent = Intent(context, AlarmProxyActivity::class.java).apply {
                 action = ACTION_QUICK_RESTART
             }
-            val quickPending = PendingIntent.getBroadcast(
+            val quickPending = PendingIntent.getActivity(
                 context,
                 REQUEST_CODE + 1,
                 quickIntent,

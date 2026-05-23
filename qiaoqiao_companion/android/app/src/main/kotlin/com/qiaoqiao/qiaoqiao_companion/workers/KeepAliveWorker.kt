@@ -26,7 +26,7 @@ class KeepAliveWorker(
     companion object {
         private const val TAG = "KeepAliveWorker"
         private const val WORK_NAME = "qiaoqiao_keep_alive_work"
-        private const val INTERVAL_MINUTES = 15L // 每15分钟检查一次
+        private const val INTERVAL_MINUTES = 15L // 每15分钟检查一次（WorkManager 最小间隔15分钟）
 
         /**
          * 启动定期保活任务
