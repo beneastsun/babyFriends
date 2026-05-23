@@ -190,6 +190,14 @@ class UsageStatsChannel(private val context: Context) : MethodChannel.MethodCall
             }
         }
 
+        for ((packageName, resumeTime) in lastResumeTime) {
+            if (endTime > resumeTime) {
+                val duration = endTime - resumeTime
+                usageTimeMap.merge(packageName, duration) { old, new -> old + new }
+                lastUseTime[packageName] = endTime
+            }
+        }
+
         android.util.Log.d("UsageStatsChannel", "=== CALCULATED FROM EVENTS ===")
         val result = mutableListOf<Map<String, Any?>>()
         for ((packageName, totalTimeMs) in usageTimeMap) {
@@ -270,6 +278,36 @@ class UsageStatsChannel(private val context: Context) : MethodChannel.MethodCall
         // 应用信息缓存
         val appNames = mutableMapOf<String, String>()
 
+        fun addDurationToHourlyMap(packageName: String, resumeTime: Long, pauseTime: Long) {
+            var currentTime = resumeTime
+            var remainingDuration = pauseTime - resumeTime
+            val calendar = java.util.Calendar.getInstance()
+
+            while (remainingDuration > 0 && currentTime < pauseTime) {
+                calendar.timeInMillis = currentTime
+                val hour = calendar.get(java.util.Calendar.HOUR_OF_DAY)
+
+                calendar.set(java.util.Calendar.MINUTE, 59)
+                calendar.set(java.util.Calendar.SECOND, 59)
+                calendar.set(java.util.Calendar.MILLISECOND, 999)
+                val hourEndTime = calendar.timeInMillis
+
+                val durationInHour = minOf(
+                    remainingDuration,
+                    hourEndTime - currentTime + 1,
+                    pauseTime - currentTime
+                )
+
+                if (durationInHour > 0) {
+                    hourlyMap.getOrPut(packageName) { mutableMapOf() }
+                        .merge(hour, durationInHour) { old, new -> old + new }
+                }
+
+                remainingDuration -= durationInHour
+                currentTime += durationInHour
+            }
+        }
+
         // 获取时区偏移（用于将时间戳转换为本地小时）
         val calendar = java.util.Calendar.getInstance()
 
@@ -291,39 +329,7 @@ class UsageStatsChannel(private val context: Context) : MethodChannel.MethodCall
                 UsageEvents.Event.ACTIVITY_PAUSED -> {
                     val resumeTime = lastResumeTime[packageName]
                     if (resumeTime != null && event.timeStamp > resumeTime) {
-                        // 计算这个时间段的时长
-                        val duration = event.timeStamp - resumeTime
-
-                        // 分配到对应的小时
-                        var currentTime = resumeTime
-                        var remainingDuration = duration
-
-                        while (remainingDuration > 0 && currentTime < event.timeStamp) {
-                            // 获取当前小时
-                            calendar.timeInMillis = currentTime
-                            val hour = calendar.get(java.util.Calendar.HOUR_OF_DAY)
-
-                            // 计算当前小时的剩余时间
-                            calendar.set(java.util.Calendar.MINUTE, 59)
-                            calendar.set(java.util.Calendar.SECOND, 59)
-                            calendar.set(java.util.Calendar.MILLISECOND, 999)
-                            val hourEndTime = calendar.timeInMillis
-
-                            // 计算在这个小时内的时长
-                            val durationInHour = minOf(
-                                remainingDuration,
-                                hourEndTime - currentTime + 1,
-                                event.timeStamp - currentTime
-                            )
-
-                            if (durationInHour > 0) {
-                                hourlyMap.getOrPut(packageName) { mutableMapOf() }
-                                    .merge(hour, durationInHour) { old, new -> old + new }
-                            }
-
-                            remainingDuration -= durationInHour
-                            currentTime += durationInHour
-                        }
+                        addDurationToHourlyMap(packageName, resumeTime, event.timeStamp)
 
                         // 清除 resume 时间
                         lastResumeTime.remove(packageName)
@@ -334,6 +340,15 @@ class UsageStatsChannel(private val context: Context) : MethodChannel.MethodCall
             // 缓存应用名
             if (!appNames.containsKey(packageName)) {
                 appNames[packageName] = getAppName(packageName)
+            }
+        }
+
+        for ((packageName, resumeTime) in lastResumeTime) {
+            if (endTime > resumeTime) {
+                addDurationToHourlyMap(packageName, resumeTime, endTime)
+                if (!appNames.containsKey(packageName)) {
+                    appNames[packageName] = getAppName(packageName)
+                }
             }
         }
 

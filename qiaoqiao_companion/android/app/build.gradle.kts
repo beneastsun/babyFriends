@@ -18,6 +18,16 @@ if (localPropertiesFile.exists()) {
 val appApplicationId = localProperties.getProperty("app.applicationId", "com.qiaoqiao.qiaoqiao_companion")
 val appAppName = localProperties.getProperty("app.appName", "纹纹小伙伴")
 
+// 从 strings.xml 读取图标主题配置
+val stringsFile = file("src/main/res/values/strings.xml")
+val appIconTheme = if (stringsFile.exists()) {
+    val text = stringsFile.readText()
+    val regex = """<string\s+name="app_icon_theme">([^<]+)</string>""".toRegex()
+    regex.find(text)?.groupValues?.getOrNull(1) ?: "default"
+} else {
+    "default"
+}
+
 android {
     namespace = "com.qiaoqiao.qiaoqiao_companion"  // 保持原有namespace，R类使用此包名
     compileSdk = flutter.compileSdkVersion
@@ -48,6 +58,15 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+
+    sourceSets {
+        getByName("main") {
+            val themeResDir = file("src/icons/$appIconTheme/res")
+            if (themeResDir.exists()) {
+                res.srcDirs("src/main/res", themeResDir.absolutePath)
+            }
         }
     }
 }

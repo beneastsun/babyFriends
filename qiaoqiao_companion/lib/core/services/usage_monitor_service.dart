@@ -10,6 +10,8 @@ import 'package:qiaoqiao_companion/core/services/reminder_service.dart';
 import 'package:qiaoqiao_companion/core/services/rule_checker_service.dart';
 import 'package:qiaoqiao_companion/shared/models/models.dart';
 import 'package:qiaoqiao_companion/shared/models/hourly_usage_stats.dart' as hourly_model;
+import 'package:qiaoqiao_companion/shared/providers/filtered_app_usage_provider.dart';
+import 'package:qiaoqiao_companion/shared/providers/hourly_usage_provider.dart';
 import 'package:qiaoqiao_companion/shared/providers/monitored_apps_provider.dart';
 import 'package:qiaoqiao_companion/shared/providers/today_usage_provider.dart';
 import 'package:qiaoqiao_companion/shared/providers/continuous_usage_provider.dart';
@@ -339,10 +341,7 @@ class UsageMonitorService {
       }
 
       // 3. 同步系统数据
-      await _syncTodayUsageFromSystem();
-
-      // 3.5 刷新今日使用数据（解决首次启动时不显示使用时长的问题）
-      await _ref.read(todayUsageProvider.notifier).loadToday();
+      await refreshTodayUsage();
 
       // 4. 检查规则
       await _checkRules();
@@ -813,6 +812,13 @@ class UsageMonitorService {
       );
       print('[UsageMonitor] 触发强制休息');
     }
+  }
+
+  Future<void> refreshTodayUsage() async {
+    await _syncTodayUsageFromSystem();
+    await _ref.read(todayUsageProvider.notifier).loadToday();
+    _ref.invalidate(todayHourlyTimelineNotifierProvider);
+    _ref.invalidate(filteredAppUsageProvider);
   }
 
   /// 是否正在监控
