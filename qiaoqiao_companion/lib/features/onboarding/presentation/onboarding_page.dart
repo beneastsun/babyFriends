@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qiaoqiao_companion/core/theme/app_theme.dart';
 import 'package:qiaoqiao_companion/core/platform/platform.dart';
+import 'package:qiaoqiao_companion/core/services/usage_monitor_service.dart';
 import 'package:qiaoqiao_companion/features/onboarding/data/onboarding_state.dart';
 import 'package:qiaoqiao_companion/features/onboarding/presentation/steps/welcome_step.dart';
 import 'package:qiaoqiao_companion/features/onboarding/presentation/steps/permission_guide_step.dart';
@@ -241,6 +242,11 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
         }
         return;
       }
+
+      // 权限已授予，启动监控服务
+      ref.read(usageMonitorServiceProvider).startMonitoring();
+      await MonitorService.startForegroundService();
+      await MonitorService.startGuardService();
     }
 
     if (state.currentStep == _steps.length - 1) {

@@ -46,28 +46,43 @@ object UsageStatsHelper {
                 as UsageStatsManager
 
         val endTime = System.currentTimeMillis()
-        val startTime = endTime - 1000 * 60 * 5 // 最近5分钟
+        val startTime = endTime - 1000L * 60 * 60 * 2
 
         val usageEvents = usageStatsManager.queryEvents(startTime, endTime)
         var lastResumedPackage: String? = null
         var lastResumedTime: Long = 0
+        var lastPausedPackage: String? = null
+        var lastPausedTime: Long = 0
 
         while (usageEvents.hasNextEvent()) {
             val event = UsageEvents.Event()
             usageEvents.getNextEvent(event)
+            val packageName = event.packageName ?: continue
 
-            if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED) {
-                if (event.timeStamp > lastResumedTime) {
-                    lastResumedTime = event.timeStamp
-                    lastResumedPackage = event.packageName
+            if (isSystemUiApp(packageName)) {
+                continue
+            }
+
+            when (event.eventType) {
+                UsageEvents.Event.ACTIVITY_RESUMED -> {
+                    if (event.timeStamp >= lastResumedTime) {
+                        lastResumedTime = event.timeStamp
+                        lastResumedPackage = packageName
+                    }
+                }
+                UsageEvents.Event.ACTIVITY_PAUSED -> {
+                    if (event.timeStamp >= lastPausedTime) {
+                        lastPausedTime = event.timeStamp
+                        lastPausedPackage = packageName
+                    }
                 }
             }
         }
 
-        Log.d(TAG, "getCurrentForegroundApp: lastResumedPackage=$lastResumedPackage, elapsed=${endTime - lastResumedTime}ms")
+        Log.d(TAG, "getCurrentForegroundApp: lastResumedPackage=$lastResumedPackage, lastPausedPackage=$lastPausedPackage")
 
-        // 验证是否是最近的活跃应用（30分钟窗口）
-        if (lastResumedPackage != null && (endTime - lastResumedTime) < 1800000) {
+        if (lastResumedPackage != null &&
+            (lastPausedPackage != lastResumedPackage || lastPausedTime < lastResumedTime)) {
             if (excludePackage != null && lastResumedPackage == excludePackage) {
                 return null
             }
@@ -75,5 +90,12 @@ object UsageStatsHelper {
         }
 
         return null
+    }
+
+    private fun isSystemUiApp(packageName: String): Boolean {
+        return packageName == "com.android.systemui" ||
+                packageName == "com.miui.home" ||
+                packageName == "com.android.launcher" ||
+                packageName.contains("launcher", ignoreCase = true)
     }
 }

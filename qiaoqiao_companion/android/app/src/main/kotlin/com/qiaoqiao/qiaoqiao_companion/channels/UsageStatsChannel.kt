@@ -390,32 +390,43 @@ class UsageStatsChannel(private val context: Context) : MethodChannel.MethodCall
                 as UsageStatsManager
 
         val endTime = System.currentTimeMillis()
-        val startTime = endTime - 1000 * 60 * 5 // 最近5分钟
+        val startTime = endTime - 1000L * 60 * 60 * 2
 
         val usageEvents = usageStatsManager.queryEvents(startTime, endTime)
         var lastResumedPackage: String? = null
         var lastResumedTime: Long = 0
+        var lastPausedPackage: String? = null
+        var lastPausedTime: Long = 0
 
         while (usageEvents.hasNextEvent()) {
             val event = UsageEvents.Event()
             usageEvents.getNextEvent(event)
+            val packageName = event.packageName ?: continue
 
-            if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED) {
-                if (event.timeStamp > lastResumedTime) {
-                    lastResumedTime = event.timeStamp
-                    lastResumedPackage = event.packageName
+            if (isSystemUiApp(packageName)) {
+                continue
+            }
+
+            when (event.eventType) {
+                UsageEvents.Event.ACTIVITY_RESUMED -> {
+                    if (event.timeStamp >= lastResumedTime) {
+                        lastResumedTime = event.timeStamp
+                        lastResumedPackage = packageName
+                    }
+                }
+                UsageEvents.Event.ACTIVITY_PAUSED -> {
+                    if (event.timeStamp >= lastPausedTime) {
+                        lastPausedTime = event.timeStamp
+                        lastPausedPackage = packageName
+                    }
                 }
             }
         }
 
-        // 添加调试日志
-        android.util.Log.d("UsageStatsChannel", "getCurrentForegroundApp: lastResumedPackage=$lastResumedPackage, lastResumedTime=$lastResumedTime, elapsed=${endTime - lastResumedTime}ms")
+        android.util.Log.d("UsageStatsChannel", "getCurrentForegroundApp: lastResumedPackage=$lastResumedPackage, lastResumedTime=$lastResumedTime, lastPausedPackage=$lastPausedPackage, lastPausedTime=$lastPausedTime")
 
-        // 验证是否是最近的活跃应用
-        // 注意：用户持续使用一个app时不会有新的RESUMED事件，所以需要较长的时间窗口
-        // 将时间窗口扩大到30分钟，以支持连续使用监控的正常工作
-        // 连续使用限制通常不会超过30分钟
-        if (lastResumedPackage != null && (endTime - lastResumedTime) < 1800000) {
+        if (lastResumedPackage != null &&
+            (lastPausedPackage != lastResumedPackage || lastPausedTime < lastResumedTime)) {
             return lastResumedPackage
         }
 

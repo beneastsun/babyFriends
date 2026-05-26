@@ -73,6 +73,7 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
     private var isCountdownWidgetShowing = false
     private var countdownAnimator: ValueAnimator? = null
     private var countdownWidgetLayoutParams: WindowManager.LayoutParams? = null
+    private var countdownCancelled = false
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
@@ -686,11 +687,12 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
     private var notified2min = false
 
     private fun startCountdownWidgetAnimation(textView: TextView, totalSeconds: Int) {
-        countdownAnimator?.cancel() // 取消之前的动画
+        countdownAnimator?.cancel()
 
         // 重置通知标记
         notified3min = false
         notified2min = false
+        countdownCancelled = false
 
         countdownAnimator = ValueAnimator.ofInt(totalSeconds, 0).apply {
             duration = totalSeconds * 1000L
@@ -714,12 +716,15 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
             }
 
             addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationCancel(animation: Animator) {
+                    countdownCancelled = true
+                }
+
                 override fun onAnimationEnd(animation: Animator) {
+                    if (countdownCancelled) return
                     textView.text = formatCountdownTime(0)
-                    // 倒计时结束，通知 Flutter
                     notifyCountdownEnded()
-                    // 隐藏倒计时窗口
-                    hideCountdownWidget()
+                    removeCountdownWidgetView()
                 }
             })
         }
@@ -786,26 +791,26 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
      * 隐藏倒计时悬浮窗
      */
     private fun hideCountdownWidget() {
-        // 取消动画
+        countdownCancelled = true
         countdownAnimator?.cancel()
         countdownAnimator = null
+        removeCountdownWidgetView()
+    }
 
-        countdownWidgetView?.let { view ->
-            view.animate()
-                .alpha(0f)
-                .setDuration(200)
-                .setListener(object : AnimatorListenerAdapter() {
-                    override fun onAnimationEnd(animation: Animator) {
-                        try {
-                            windowManager?.removeView(view)
-                        } catch (e: Exception) {
-                            // 忽略移除失败
-                        }
-                        countdownWidgetView = null
-                        isCountdownWidgetShowing = false
-                    }
-                })
-                .start()
+    private fun removeCountdownWidgetView() {
+        val view = countdownWidgetView
+        countdownWidgetView = null
+        isCountdownWidgetShowing = false
+        countdownWidgetLayoutParams = null
+        countdownAnimator = null
+
+        view?.let {
+            try {
+                it.animate().cancel()
+                windowManager?.removeView(it)
+            } catch (e: Exception) {
+                // 视图可能已经被系统移除
+            }
         }
     }
 }

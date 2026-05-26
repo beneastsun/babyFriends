@@ -109,6 +109,44 @@ class ContinuousUsageService {
     return false;
   }
 
+  Future<void> forceTriggerRest({int? minTotalDurationSeconds}) async {
+    final now = DateTime.now();
+    final settings = _ref.read(continuousUsageSettingsProvider);
+    final minimumDuration = minTotalDurationSeconds ?? settings.limitMinutes * 60;
+
+    var session = await _sessionDao.getActiveSession(_today());
+    if (session == null) {
+      session = ContinuousSession(
+        sessionDate: _today(),
+        startTime: now,
+        totalDurationSeconds: minimumDuration,
+        lastActivityTime: now,
+        createdAt: now,
+        updatedAt: now,
+      );
+      final id = await _sessionDao.insert(session);
+      session = session.copyWith(id: id);
+    }
+
+    if (session.isInRest) {
+      print('[ContinuousUsage] Already in rest, skip forceTriggerRest');
+      return;
+    }
+
+    final restEndTime = now.add(Duration(minutes: settings.restMinutes));
+    final totalDurationSeconds = session.totalDurationSeconds < minimumDuration
+        ? minimumDuration
+        : session.totalDurationSeconds;
+
+    await _sessionDao.update(session.copyWith(
+      totalDurationSeconds: totalDurationSeconds,
+      lastActivityTime: now,
+      restEndTime: restEndTime,
+      updatedAt: now,
+    ));
+    print('[ContinuousUsage] Force rest triggered, restEndTime: $restEndTime');
+  }
+
   /// 触发强制休息
   Future<void> _triggerRest() async {
     final session = await _sessionDao.getActiveSession(_today());

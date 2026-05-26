@@ -1,5 +1,8 @@
 package com.qiaoqiao.qiaoqiao_companion.monitor
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
 import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
@@ -10,9 +13,11 @@ import android.os.Looper
 import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
+import android.view.animation.LinearInterpolator
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -34,6 +39,15 @@ class NativeOverlayManager(private val context: Context) {
     private var isShowing = false
     private var currentBlockedPackage: String? = null
     private val handler = Handler(Looper.getMainLooper())
+
+    // 倒计时悬浮窗
+    private var countdownWidgetView: View? = null
+    private var isCountdownShowing = false
+    private var countdownAnimator: ValueAnimator? = null
+    private var countdownTextTime: TextView? = null
+    private var countdownLayoutParams: WindowManager.LayoutParams? = null
+    private var countdownCancelled = false
+    private var onCountdownEnded: Runnable? = null
 
     /**
      * 检查是否有悬浮窗权限
@@ -333,12 +347,257 @@ class NativeOverlayManager(private val context: Context) {
         }
     }
 
+    // ==================== 倒计时悬浮窗 ====================
+
+    /**
+     * 显示倒计时悬浮窗
+     * 位于屏幕右上角，可拖动，与 Flutter side 样式一致
+     *
+     * @param totalSeconds 倒计时总秒数
+     * @param onEnded 倒计时结束的回调
+     */
+    fun showCountdownOverlay(totalSeconds: Long, onEnded: Runnable? = null) {
+        if (!hasOverlayPermission()) {
+            Log.w(TAG, "No overlay permission, cannot show countdown")
+            return
+        }
+
+        hideCountdownOverlay()
+        this.onCountdownEnded = onEnded
+
+        try {
+            windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            countdownWidgetView = createCountdownView()
+            countdownTextTime = countdownWidgetView?.findViewWithTag("countdown_time")
+
+            countdownLayoutParams = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                } else {
+                    @Suppress("DEPRECATION")
+                    WindowManager.LayoutParams.TYPE_PHONE
+                },
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.END
+                x = 32
+                y = 100
+            }
+
+            windowManager?.addView(countdownWidgetView, countdownLayoutParams)
+            isCountdownShowing = true
+
+            countdownWidgetView?.alpha = 0f
+            countdownWidgetView?.animate()
+                ?.alpha(1f)
+                ?.setDuration(200)
+                ?.setInterpolator(DecelerateInterpolator())
+                ?.start()
+
+            startCountdownAnimation(totalSeconds)
+            Log.d(TAG, "Countdown overlay shown: ${totalSeconds}s")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to show countdown overlay", e)
+        }
+    }
+
+    /**
+     * 更新倒计时剩余时间
+     * 每次 monitorRunnable 检查时调用，重新校准倒计时
+     */
+    fun updateCountdownTime(remainingSeconds: Long) {
+        if (!isCountdownShowing) return
+        countdownAnimator?.cancel()
+        countdownCancelled = true
+        startCountdownAnimation(remainingSeconds)
+    }
+
+    /**
+     * 隐藏倒计时悬浮窗
+     */
+    fun hideCountdownOverlay() {
+        countdownCancelled = true
+        countdownAnimator?.cancel()
+        countdownAnimator = null
+
+        val view = countdownWidgetView
+        countdownWidgetView = null
+        isCountdownShowing = false
+        countdownLayoutParams = null
+        countdownTextTime = null
+
+        view?.let {
+            try {
+                it.animate().cancel()
+                windowManager?.removeView(it)
+            } catch (e: Exception) { }
+        }
+    }
+
+    /**
+     * 检查倒计时是否正在显示
+     */
+    fun isCountdownShowing(): Boolean = isCountdownShowing
+
+    /**
+     * 创建倒计时悬浮窗视图
+     */
+    private fun createCountdownView(): View {
+        val density = context.resources.displayMetrics.density
+        val candyPurple = 0xFFB57EDC.toInt()
+        val candyPeach = 0xFFFFAB91.toInt()
+
+        val container = FrameLayout(context).apply {
+            val cornerRadius = (20 * density).toInt()
+            background = android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(candyPurple, candyPeach)
+            ).apply {
+                this.cornerRadius = cornerRadius.toFloat()
+            }
+            setPadding(
+                (16 * density).toInt(),
+                (10 * density).toInt(),
+                (16 * density).toInt(),
+                (10 * density).toInt()
+            )
+        }
+
+        val contentLayout = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val emojiView = TextView(context).apply {
+            text = "🐻"
+            textSize = 20f
+            setPadding(0, 0, (10 * density).toInt(), 0)
+        }
+
+        val timeView = TextView(context).apply {
+            tag = "countdown_time"
+            text = formatCountdownTime(300)
+            textSize = 16f
+            setTextColor(0xFFFFFFFF.toInt())
+            typeface = Typeface.DEFAULT_BOLD
+            setShadowLayer(2f, 1f, 1f, 0x40000000)
+        }
+
+        contentLayout.addView(emojiView)
+        contentLayout.addView(timeView)
+        container.addView(contentLayout)
+
+        setupDragListener(container)
+        return container
+    }
+
+    /**
+     * 启动倒计时动画
+     */
+    private fun startCountdownAnimation(totalSeconds: Long) {
+        countdownCancelled = false
+        val startSeconds = totalSeconds.coerceAtLeast(0)
+
+        countdownTextTime?.let { textView ->
+            textView.text = formatCountdownTime(startSeconds)
+        }
+
+        countdownAnimator = ValueAnimator.ofInt(startSeconds.toInt(), 0).apply {
+            duration = startSeconds * 1000L
+            interpolator = LinearInterpolator()
+
+            addUpdateListener { animation ->
+                if (countdownCancelled) return@addUpdateListener
+                val current = animation.animatedValue as Int
+                countdownTextTime?.text = formatCountdownTime(current.coerceAtLeast(0).toLong())
+            }
+
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationCancel(animation: Animator) {
+                    countdownCancelled = true
+                }
+
+                override fun onAnimationEnd(animation: Animator) {
+                    if (countdownCancelled) return
+                    onCountdownEnded?.run()
+                    removeCountdownView()
+                }
+            })
+        }
+        countdownAnimator?.start()
+    }
+
+    /**
+     * 格式化倒计时时间 MM:SS
+     */
+    private fun formatCountdownTime(seconds: Long): String {
+        val sec = seconds.coerceAtLeast(0)
+        val min = sec / 60
+        val s = sec % 60
+        return String.format("%02d:%02d", min, s)
+    }
+
+    /**
+     * 设置拖动监听
+     */
+    private fun setupDragListener(view: View) {
+        var initialX = 0
+        var initialY = 0
+        var initialTouchX = 0f
+        var initialTouchY = 0f
+
+        view.setOnTouchListener { v, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    countdownLayoutParams?.let { params ->
+                        initialX = params.x
+                        initialY = params.y
+                    }
+                    initialTouchX = event.rawX
+                    initialTouchY = event.rawY
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    countdownLayoutParams?.let { params ->
+                        params.x = initialX + (initialTouchX - event.rawX).toInt()
+                        params.y = initialY + (event.rawY - initialTouchY).toInt()
+                        windowManager?.updateViewLayout(view, params)
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    private fun removeCountdownView() {
+        val view = countdownWidgetView
+        countdownWidgetView = null
+        isCountdownShowing = false
+        countdownLayoutParams = null
+        countdownTextTime = null
+        countdownAnimator = null
+
+        view?.let {
+            try {
+                it.animate().cancel()
+                windowManager?.removeView(it)
+            } catch (e: Exception) { }
+        }
+    }
+
     /**
      * 清理资源
      */
     fun destroy() {
         handler.removeCallbacksAndMessages(null)
         hideOverlayImmediate()
+        hideCountdownOverlay()
         windowManager = null
     }
 }

@@ -35,7 +35,8 @@
     <application
         android:label="@string/app_name"
         android:name=".QiaoqiaoApplication"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher">
 
         <!-- 移除默认的 WorkManager 初始化器，使用自定义的 QiaoqiaoApplication 进行按需初始化 -->
         <provider

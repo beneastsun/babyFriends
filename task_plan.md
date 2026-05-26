@@ -428,6 +428,42 @@ static const Color textSecondary = Color(0xFF86868B); // 次文字
 
 ---
 
+## 当前修复阶段：Onboarding 引导页功能修复
+
+### Goal
+
+修复引导页当前三个影响实际使用的问题：权限设置返回后不实时刷新、电池管理相关跳转入口不完整、使用时间设置未接入真实规则执行链路。
+
+### Phase O-1: 权限页返回刷新
+
+- [x] 在 `permission_guide_step.dart` 接入页面生命周期监听。
+- [x] 从系统设置返回 `AppLifecycleState.resumed` 后重新执行权限检查。
+- [x] 必要时同步刷新 `appInitializationProvider.checkPermissions()`，保证 onboarding 与全局初始化状态一致。
+- **Status:** complete
+
+### Phase O-2: 电池管理跳转补齐
+
+- [x] 复查 `MonitorService.openBatterySettings()` 与 `openPowerSavingSettings()` 的 Flutter 到 Kotlin 调用链。
+- [x] 修复 `openAppDetailSettings()` 当前 channel/method 断点。
+- [x] 复用 `RomUtils.getAppDetailSettingIntent(context)` 作为兜底入口。
+- **Status:** complete
+
+### Phase O-3: 使用时间接入真实规则
+
+- [x] 保留 `RulesSetupStep` 的时间选择体验，但保存时接入真实规则体系。
+- [x] 使用 `rules.total_time` 写入总时长限制。
+- [x] 确保被管理应用来自 `monitored_apps`，避免仅写旧 `app_category`/`time_block` 规则。
+- [x] 避免 onboarding 完成时无差别 `deleteAll()` 删除既有规则。
+- **Status:** complete
+
+### Verification
+
+- [x] 运行 `flutter analyze`（项目存在既有 lint/warning，聚焦本次修改文件无新增 error）。
+- [x] 运行相关 `flutter test`（项目缺少 `test` 目录，无法执行测试）。
+- [ ] Android 真机或模拟器验证：授权后返回权限页自动刷新；电池优化/省电策略/应用详情能跳转；引导页时间设置写入真实规则并在监控链路中生效。
+
+---
+
 ## Key Questions
 
 1. ~~Flutter 环境是否正常工作？~~ → ✅ 已确认

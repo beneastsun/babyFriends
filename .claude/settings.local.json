@@ -41,7 +41,9 @@
       "Bash(git log:*)",
       "Bash(git ls-tree:*)",
       "Bash(./gradlew compileDebugKotlin)",
-      "Bash(flutter test *)"
+      "Bash(flutter test *)",
+      "Bash(dart analyze *)",
+      "Bash(./qiaoqiao_companion/android/gradlew --stop)"
     ]
   }
 }

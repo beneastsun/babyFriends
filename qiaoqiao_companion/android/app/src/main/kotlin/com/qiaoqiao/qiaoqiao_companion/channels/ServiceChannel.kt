@@ -55,6 +55,9 @@ class ServiceChannel(private val context: Context) : MethodChannel.MethodCallHan
             "openPowerSavingSettings" -> {
                 openPowerSavingSettings(result)
             }
+            "openAppDetailSettings" -> {
+                openAppDetailSettings(result)
+            }
             "startGuardService" -> {
                 startGuardService(result)
             }
@@ -196,11 +199,25 @@ class ServiceChannel(private val context: Context) : MethodChannel.MethodCallHan
         try {
             val intent = RomUtils.getPowerSavingSettingIntent(context)
             if (intent != null) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(intent)
                 result.success(true)
             } else {
-                result.success(false)
+                openAppDetailSettings(result)
             }
+        } catch (e: Exception) {
+            result.error("SETTINGS_ERROR", e.message, null)
+        }
+    }
+
+    /**
+     * 打开应用详情设置
+     */
+    private fun openAppDetailSettings(result: MethodChannel.Result) {
+        try {
+            val intent = RomUtils.getAppDetailSettingIntent(context)
+            context.startActivity(intent)
+            result.success(true)
         } catch (e: Exception) {
             result.error("SETTINGS_ERROR", e.message, null)
         }

@@ -1,6 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
+import 'package:sqflite/sqflite.dart';
+import 'package:qiaoqiao_companion/core/database/app_database.dart';
+import 'package:qiaoqiao_companion/core/constants/database_constants.dart';
 
 /// 连续使用设置
 class ContinuousUsageSettings {
@@ -54,36 +57,64 @@ class ContinuousUsageSettingsNotifier
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    state = ContinuousUsageSettings(
+    final settings = ContinuousUsageSettings(
       enabled: prefs.getBool(_keyEnabled) ?? false,
       limitMinutes: prefs.getInt(_keyLimitMinutes) ?? 30,
       restMinutes: prefs.getInt(_keyRestMinutes) ?? 10,
       resetAfterRestMinutes: prefs.getInt(_keyResetAfterRestMinutes) ?? 1,
     );
+    state = settings;
+    _syncToDb({
+      _keyEnabled: settings.enabled.toString(),
+      _keyLimitMinutes: settings.limitMinutes.toString(),
+      _keyRestMinutes: settings.restMinutes.toString(),
+      _keyResetAfterRestMinutes: settings.resetAfterRestMinutes.toString(),
+    });
+  }
+
+  /// 将设置同步写入 DB (app_settings 表)，供原生侧 stateless 读取
+  Future<void> _syncToDb(Map<String, String> entries) async {
+    try {
+      final db = await AppDatabase.instance.database;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final batch = db.batch();
+      for (final entry in entries.entries) {
+        batch.insert(
+          DatabaseConstants.tableAppSettings,
+          {'key': entry.key, 'value': entry.value, 'updated_at': now},
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      await batch.commit(noResult: true);
+    } catch (_) {}
   }
 
   Future<void> setEnabled(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_keyEnabled, enabled);
     state = state.copyWith(enabled: enabled);
+    _syncToDb({_keyEnabled: enabled.toString()});
   }
 
   Future<void> setLimitMinutes(int minutes) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_keyLimitMinutes, minutes);
     state = state.copyWith(limitMinutes: minutes);
+    _syncToDb({_keyLimitMinutes: minutes.toString()});
   }
 
   Future<void> setRestMinutes(int minutes) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_keyRestMinutes, minutes);
     state = state.copyWith(restMinutes: minutes);
+    _syncToDb({_keyRestMinutes: minutes.toString()});
   }
 
   Future<void> setResetAfterRestMinutes(int minutes) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_keyResetAfterRestMinutes, minutes);
     state = state.copyWith(resetAfterRestMinutes: minutes);
+    _syncToDb({_keyResetAfterRestMinutes: minutes.toString()});
   }
 }
 

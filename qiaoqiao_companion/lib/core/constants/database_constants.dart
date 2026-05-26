@@ -3,7 +3,7 @@ class DatabaseConstants {
   DatabaseConstants._();
 
   static const String databaseName = 'qiaoqiao_companion.db';
-  static const int databaseVersion = 3;
+  static const int databaseVersion = 4;
 
   // 表名
   static const String tableAppUsageRecords = 'app_usage_records';
@@ -18,6 +18,9 @@ class DatabaseConstants {
   static const String tableMonitoredApps = 'monitored_apps';
   static const String tableTimePeriods = 'time_periods';
   static const String tableContinuousSessions = 'continuous_usage_sessions';
+
+  // v4 新增表
+  static const String tableAppSettings = 'app_settings';
 }
 
 /// 应用分类枚举

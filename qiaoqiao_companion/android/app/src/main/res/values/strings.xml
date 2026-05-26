@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- App Name (由 local.properties 中的 app.appName 配置) -->
-    <string name="app_name">会飞的猪</string>
+    <string name="app_name">会飞的猪123</string>
 
-    <!-- App Icon Theme: 可选值 default / v1 -->
-    <string name="app_icon_theme">jiaoshi</string>
+    <!-- App Icon Theme: default / v1 / haibianshanya / jiaoshi -->
+    <string name="app_icon_theme">v1</string>
 
     <!-- App Lock Overlay -->
     <string name="app_lock_title">应用锁定</string>

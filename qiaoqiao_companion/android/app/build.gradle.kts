@@ -18,15 +18,6 @@ if (localPropertiesFile.exists()) {
 val appApplicationId = localProperties.getProperty("app.applicationId", "com.qiaoqiao.qiaoqiao_companion")
 val appAppName = localProperties.getProperty("app.appName", "纹纹小伙伴")
 
-// 从 strings.xml 读取图标主题配置
-val stringsFile = file("src/main/res/values/strings.xml")
-val appIconTheme = if (stringsFile.exists()) {
-    val text = stringsFile.readText()
-    val regex = """<string\s+name="app_icon_theme">([^<]+)</string>""".toRegex()
-    regex.find(text)?.groupValues?.getOrNull(1) ?: "default"
-} else {
-    "default"
-}
 
 android {
     namespace = "com.qiaoqiao.qiaoqiao_companion"  // 保持原有namespace，R类使用此包名
@@ -61,15 +52,41 @@ android {
         }
     }
 
-    sourceSets {
-        getByName("main") {
-            val themeResDir = file("src/icons/$appIconTheme/res")
-            if (themeResDir.exists()) {
-                res.srcDirs("src/main/res", themeResDir.absolutePath)
-            }
-        }
+}
+
+// ── 图标主题自动切换：读取 strings.xml 的 app_icon_theme ──
+val stringsXml = file("src/main/res/values/strings.xml")
+val iconTheme = if (stringsXml.exists()) {
+    val m = """<string\s+name="app_icon_theme">([^<]+)</string>""".toRegex()
+    m.find(stringsXml.readText())?.groupValues?.getOrNull(1) ?: "default"
+} else "default"
+
+tasks.register("applyIconTheme") {
+    doLast {
+        val themeRes = file("src/icons/$iconTheme/res")
+        if (!themeRes.exists()) { logger.warn("Theme '$iconTheme' not found"); return@doLast }
+        val mainRes = file("src/main/res")
+        // 删除旧图标
+        listOf(
+            "drawable/ic_notification.xml",
+            "drawable-hdpi/ic_launcher_foreground.png", "drawable-hdpi/ic_notification.png",
+            "drawable-mdpi/ic_launcher_foreground.png", "drawable-mdpi/ic_notification.png",
+            "drawable-xhdpi/ic_launcher_foreground.png", "drawable-xhdpi/ic_notification.png",
+            "drawable-xxhdpi/ic_launcher_foreground.png", "drawable-xxhdpi/ic_notification.png",
+            "drawable-xxxhdpi/ic_launcher_foreground.png", "drawable-xxxhdpi/ic_notification.png",
+            "mipmap-anydpi-v26/ic_launcher.xml",
+            "mipmap-hdpi/ic_launcher.png", "mipmap-mdpi/ic_launcher.png",
+            "mipmap-xhdpi/ic_launcher.png", "mipmap-xxhdpi/ic_launcher.png", "mipmap-xxxhdpi/ic_launcher.png",
+            "values/colors.xml"
+        ).forEach { f -> file("$mainRes/$f").delete() }
+        // 清除空 drawable-* 目录
+        mainRes.listFiles()?.filter { it.isDirectory && it.name.startsWith("drawable-") }
+            ?.filter { it.listFiles()?.isEmpty() == true }?.forEach { it.delete() }
+        // 复制新图标
+        copy { from(themeRes) { include("**/*") }; into(mainRes) }
     }
 }
+tasks.named("preBuild") { dependsOn("applyIconTheme") }
 
 flutter {
     source = "../.."

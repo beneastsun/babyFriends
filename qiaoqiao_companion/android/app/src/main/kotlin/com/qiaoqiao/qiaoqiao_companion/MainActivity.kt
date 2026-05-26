@@ -69,20 +69,42 @@ class MainActivity : FlutterActivity() {
         super.onResume()
         // 延迟启动服务：等 Activity 完全进入前台状态后再启动
         // MIUI 需要时间将 UID 状态从 idle 更新为 foreground
+        // 最多重试 5 次（每 500ms），应对 MIUI 状态转换延迟
+        retryStartServices(0)
+    }
+
+    /**
+     * 重试启动服务（最多 5 次）
+     */
+    private fun retryStartServices(attempt: Int) {
+        if (attempt >= 5) {
+            Log.d("MainActivity", "Service start retry exhausted after $attempt attempts")
+            return
+        }
+
         Handler(Looper.getMainLooper()).postDelayed({
             try {
-                if (!MonitorForegroundService.isServiceRunning()) {
+                val monitorRunning = MonitorForegroundService.isServiceRunning()
+                val guardRunning = GuardService.isServiceRunning()
+
+                if (!monitorRunning) {
                     MonitorForegroundService.start(applicationContext)
-                    Log.d("MainActivity", "MonitorService start requested from onResume(delayed)")
+                    Log.d("MainActivity", "MonitorService start (attempt ${attempt + 1})")
                 }
-                if (!GuardService.isServiceRunning()) {
+                if (!guardRunning) {
                     GuardService.start(applicationContext)
-                    Log.d("MainActivity", "GuardService start requested from onResume(delayed)")
+                    Log.d("MainActivity", "GuardService start (attempt ${attempt + 1})")
+                }
+
+                // 如果仍有服务未启动，继续重试
+                if (!monitorRunning || !guardRunning) {
+                    retryStartServices(attempt + 1)
                 }
             } catch (e: Exception) {
-                Log.e("MainActivity", "Failed to start services from onResume", e)
+                Log.e("MainActivity", "Failed to start services (attempt ${attempt + 1})", e)
+                retryStartServices(attempt + 1)
             }
-        }, 500) // 500ms 延迟，让 MIUI 有时间更新进程状态
+        }, 500)
     }
 
     override fun onDestroy() {

@@ -207,29 +207,39 @@ class UsageMonitorService {
       return;
     }
 
-    _stopwatchWidgetShowing = true;
-    
+    _countdownWidgetShowing = true;
+    _stopwatchWidgetShowing = false;
+    _countdownTriggerApp = _currentSessionApp;
+
     print('[UsageMonitor] _showCountdownFromRemaining - showing countdown from: ${remainingSeconds}s (${remainingSeconds ~/ 60}分钟)');
-    
+
     // 显示倒计时悬浮窗，从剩余时间开始
     await OverlayService.showCountdownWidget(
       totalSeconds: remainingSeconds,
       onEnded: () {
-        print('[UsageMonitor] Countdown ended!');
-        _stopwatchWidgetShowing = false;
-        _countdownWidgetShowing = false;
-        // 倒计时结束，触发强制休息
-        if (_currentSessionApp != null) {
-          _triggerForcedRestAfterCountdown(_currentSessionApp!);
-        }
+        unawaited(_handleCountdownEnded());
       },
       onAlert: (alertType) {
         print('[UsageMonitor] Countdown alert: $alertType');
-        if (_currentSessionApp != null) {
-          _handleCountdownAlert(_currentSessionApp!, alertType);
+        final targetApp = _countdownTriggerApp ?? _currentSessionApp;
+        if (targetApp != null) {
+          _handleCountdownAlert(targetApp, alertType);
         }
       },
     );
+  }
+
+  Future<void> _handleCountdownEnded([String? fallbackApp]) async {
+    print('[UsageMonitor] Countdown ended!');
+    final targetApp = _countdownTriggerApp ?? _currentSessionApp ?? fallbackApp;
+    _stopwatchWidgetShowing = false;
+    _countdownWidgetShowing = false;
+    _countdownTriggerApp = null;
+    await OverlayService.hideCountdownWidget();
+
+    if (targetApp != null) {
+      await _triggerForcedRestAfterCountdown(targetApp);
+    }
   }
 
   /// 检查是否在休息后隐藏计时器
@@ -259,9 +269,11 @@ class UsageMonitorService {
 
   /// 隐藏秒表悬浮窗
   Future<void> _hideStopwatchWidget() async {
-    if (_stopwatchWidgetShowing) {
+    if (_stopwatchWidgetShowing || _countdownWidgetShowing) {
       await OverlayService.hideCountdownWidget();
       _stopwatchWidgetShowing = false;
+      _countdownWidgetShowing = false;
+      _countdownTriggerApp = null;
     }
   }
 
@@ -281,23 +293,21 @@ class UsageMonitorService {
 
     _countdownWidgetShowing = true;
     _stopwatchWidgetShowing = false;
+    _countdownTriggerApp = _currentSessionApp;
 
     // 先隐藏当前的悬浮窗（如果有）
     await OverlayService.hideCountdownWidget();
-    
+
     // 显示新的倒计时悬浮窗
     await OverlayService.showCountdownWidget(
       totalSeconds: remainingSeconds,
       onEnded: () {
-        _countdownWidgetShowing = false;
-        // 倒计时结束，触发强制休息
-        if (_currentSessionApp != null) {
-          _triggerForcedRestAfterCountdown(_currentSessionApp!);
-        }
+        unawaited(_handleCountdownEnded());
       },
       onAlert: (alertType) {
-        if (_currentSessionApp != null) {
-          _handleCountdownAlert(_currentSessionApp!, alertType);
+        final targetApp = _countdownTriggerApp ?? _currentSessionApp;
+        if (targetApp != null) {
+          _handleCountdownAlert(targetApp, alertType);
         }
       },
     );
@@ -335,16 +345,16 @@ class UsageMonitorService {
       }
       _lastPollTime = now;
 
-      // 2. 检查禁用应用
+      // 2. 同步系统数据
+      await refreshTodayUsage();
+
+      // 3. 检查规则
+      await _checkRules();
+
+      // 4. 检查禁用应用
       if (currentApp != null) {
         await _checkForbiddenApp(currentApp);
       }
-
-      // 3. 同步系统数据
-      await refreshTodayUsage();
-
-      // 4. 检查规则
-      await _checkRules();
 
       // 5. 检查连续使用提醒和强制休息
       if (currentApp != null) {
@@ -716,13 +726,13 @@ class UsageMonitorService {
 
       // 5分钟警告时，显示倒计时悬浮窗
       _countdownWidgetShowing = true;
+      _stopwatchWidgetShowing = false;
+      _countdownTriggerApp = currentApp;
       await OverlayService.showCountdownWidget(
         totalSeconds: 5 * 60, // 5分钟倒计时
         onEnded: () {
-          // 倒计时结束，触发强制休息
           print('[UsageMonitor] 倒计时悬浮窗结束，触发强制休息');
-          _countdownWidgetShowing = false;
-          _triggerForcedRestAfterCountdown(currentApp);
+          unawaited(_handleCountdownEnded(currentApp));
         },
         onAlert: (alertType) {
           // 3分钟或2分钟提醒
@@ -771,19 +781,24 @@ class UsageMonitorService {
 
   /// 倒计时结束后触发强制休息
   Future<void> _triggerForcedRestAfterCountdown(String currentApp) async {
-    // 触发强制休息
-    final triggered = await _continuousUsageService.shouldTriggerRest();
-    if (triggered) {
-      final settings = _ref.read(continuousUsageSettingsProvider);
+    final settings = _ref.read(continuousUsageSettingsProvider);
 
-      await _reminderService.checkAndShowForbiddenReminder(
-        packageName: currentApp,
-        reason: '连续使用时间已达限制，需要休息 ${settings.restMinutes} 分钟！',
-        ruleType: 'continuous_usage_limit',
-        durationSeconds: settings.restSeconds,
-      );
-      print('[UsageMonitor] 倒计时结束，已触发强制休息弹窗');
-    }
+    await OverlayService.hideCountdownWidget();
+    _countdownWidgetShowing = false;
+    _stopwatchWidgetShowing = false;
+    _countdownTriggerApp = null;
+
+    await _continuousUsageService.forceTriggerRest(
+      minTotalDurationSeconds: settings.limitMinutes * 60,
+    );
+
+    await _reminderService.checkAndShowForbiddenReminder(
+      packageName: currentApp,
+      reason: '连续使用时间已达限制，需要休息 ${settings.restMinutes} 分钟！',
+      ruleType: 'continuous_usage_limit',
+      durationSeconds: settings.restSeconds,
+    );
+    print('[UsageMonitor] 倒计时结束，已触发强制休息弹窗');
   }
 
   /// 检查并触发强制休息
@@ -800,6 +815,8 @@ class UsageMonitorService {
       // 隐藏倒计时悬浮窗（如果有的话）
       await OverlayService.hideCountdownWidget();
       _countdownWidgetShowing = false;
+      _stopwatchWidgetShowing = false;
+      _countdownTriggerApp = null;
       print('[UsageMonitor] 隐藏倒计时悬浮窗');
 
       final settings = _ref.read(continuousUsageSettingsProvider);

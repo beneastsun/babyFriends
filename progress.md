@@ -2,9 +2,51 @@
 
 ## 当前状态
 
-**当前阶段：UI 重设计 - 苹果式简洁风格**
+**当前阶段：Onboarding 引导页功能修复**
 **已完成：阶段 1-4 + 阶段 5.0 + 家长密码设置功能 + UI主题重构**
+**进行中：权限返回刷新、电池管理跳转补齐、真实使用时间设置接入**
 **待开始：UI 重设计实施 + 阶段 5.1-5.5 + 阶段 6**
+
+---
+
+## 2026-05-23: Onboarding 引导页功能修复规划
+
+**用户需求：**
+- 设置权限页在系统设置授权后，需要从设置返回时实时刷新。
+- 引导页缺少跳转到电池管理相关设置的完整入口。
+- 引导页的使用时间设置需要接入真实规则功能，而不是旧规则或展示式配置。
+
+**当前发现：**
+- `permission_guide_step.dart` 缺少生命周期 `resumed` 自动刷新。
+- `MonitorService.openAppDetailSettings()` 存在 Flutter/native 调用链断点，Android 侧已有 `RomUtils.getAppDetailSettingIntent(context)` 可复用。
+- `RulesSetupStep` 保存的是 onboarding 临时 data，最终 `_saveRulesToDatabase()` 仍写旧 `app_category`/`time_block` 规则；真实监控链路应写 `rules.total_time`、`monitored_apps`、`time_periods`。
+
+**验证方式：**
+- 运行 `flutter analyze`。
+- 运行相关 `flutter test`。
+- Android 真机或模拟器手动验证授权返回刷新、电池设置跳转、时间设置真实生效。
+
+---
+
+## 2026-05-23: Onboarding 引导页功能修复完成
+
+**完成内容：**
+- ✅ `PermissionGuideStep` 接入 `WidgetsBindingObserver`，从系统设置返回 `resumed` 后自动刷新权限状态。
+- ✅ 权限刷新时同步调用 `appInitializationProvider.checkPermissions()`，保持 onboarding 与全局初始化状态一致。
+- ✅ `MonitorService.openAppDetailSettings()` 改走 service channel，Android 侧新增 `openAppDetailSettings` 并复用 `RomUtils.getAppDetailSettingIntent(context)`。
+- ✅ `openPowerSavingSettings()` 补充 `FLAG_ACTIVITY_NEW_TASK`，无可用省电入口时回退应用详情页。
+- ✅ Onboarding 完成时不再 `RuleDao.deleteAll()`，改为 upsert `rules.total_time`。
+- ✅ 引导页游戏/视频时长写入匹配已安装默认应用的 `monitored_apps.daily_limit_minutes`。
+- ✅ 首次无时间段配置时写入 `time_periods` 默认禁用时段，避免继续写旧 `time_block` 规则。
+- ✅ 保存后刷新 `rulesProvider`、`monitoredAppsProvider`、`timePeriodsProvider`。
+
+**验证结果：**
+- ✅ `dart format` 已执行。
+- ⚠️ `flutter analyze` 仍因项目既有 lint/warning 退出 1；本次修改文件的聚焦 `dart analyze` 无新增 error，仅剩 `MonitorService` 既有 `avoid_print` info。
+- ⚠️ `flutter test` 无法执行：项目缺少 `test` 目录。
+- ⏳ Android 真机/模拟器手工验证尚未执行。
+
+---
 
 ---
 

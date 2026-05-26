@@ -186,15 +186,20 @@ class ReminderService {
     // - 时长限制类规则 (total_time_limit, category_limit, app_daily_limit, forced_rest)
     final isTimePeriod = ruleType == 'time_period';
     final isContinuousUsage = ruleType != null && ruleType.startsWith('continuous_usage_');
+    final isForcedRest = ruleType == 'continuous_usage_limit' || ruleType == 'forced_rest';
     final isTimeLimit = ruleType == 'total_time_limit' ||
                         ruleType == 'category_limit' ||
                         ruleType == 'app_daily_limit' ||
                         ruleType == 'forced_rest';
     final bypassCooldown = isTimePeriod || isContinuousUsage || isTimeLimit;
+    final isHardLimit = isForcedRest || isTimePeriod || isTimeLimit;
 
-    // 0. 如果弹窗已经在显示，不要重复创建（避免重置倒计时）
+    // 0. 如果弹窗已经在显示，硬限制替换旧弹窗，普通提醒不重复创建
     if (await OverlayService.isOverlayShowing()) {
-      return false;
+      if (!isHardLimit) {
+        return false;
+      }
+      await OverlayService.hideOverlay();
     }
 
     // 1. 检查是否应该显示提醒（限制时段和连续使用提醒始终显示）
@@ -213,14 +218,13 @@ class ReminderService {
     final remainingSeconds = _forbiddenAppTracker.getDismissRemainingSeconds(packageName);
 
     // 5. 确定弹窗类型和关闭延迟
-    final isForcedRest = ruleType == 'continuous_usage_limit' || ruleType == 'forced_rest';
     ReminderType type;
     int dismissDelay;
 
-    if (isForcedRest && durationSeconds != null && durationSeconds! > 0) {
+    if (isForcedRest && durationSeconds != null && durationSeconds > 0) {
       // 强制休息：使用 lock 类型，关闭延迟等于休息时长
       type = ReminderType.lock;
-      dismissDelay = durationSeconds!;
+      dismissDelay = durationSeconds;
     } else {
       // 其他情况：根据提醒次数确定类型
       type = count < 3

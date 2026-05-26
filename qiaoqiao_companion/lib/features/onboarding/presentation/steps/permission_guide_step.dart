@@ -1,17 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qiaoqiao_companion/core/theme/app_theme.dart';
 import 'package:qiaoqiao_companion/core/platform/platform.dart';
 import 'package:qiaoqiao_companion/shared/widgets/miui_permission_guide_card.dart';
 
 /// 权限引导步骤
-class PermissionGuideStep extends StatefulWidget {
+class PermissionGuideStep extends ConsumerStatefulWidget {
   const PermissionGuideStep({super.key});
 
   @override
-  State<PermissionGuideStep> createState() => _PermissionGuideStepState();
+  ConsumerState<PermissionGuideStep> createState() =>
+      _PermissionGuideStepState();
 }
 
-class _PermissionGuideStepState extends State<PermissionGuideStep> {
+class _PermissionGuideStepState extends ConsumerState<PermissionGuideStep>
+    with WidgetsBindingObserver {
   bool _hasUsageStats = false;
   bool _hasOverlay = false;
   bool _needsAutoStart = false;
@@ -27,7 +30,21 @@ class _PermissionGuideStepState extends State<PermissionGuideStep> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _checkPermissions();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkPermissions();
+    }
   }
 
   Future<void> _checkPermissions() async {
@@ -36,6 +53,8 @@ class _PermissionGuideStepState extends State<PermissionGuideStep> {
     final needsAutoStart = await MonitorService.checkAutoStartPermission();
     final isIgnoringBattery = await MonitorService.checkBatteryOptimization();
     final romType = await MonitorService.getRomType();
+
+    if (!mounted) return;
 
     setState(() {
       _hasUsageStats = hasUsageStats;
@@ -69,11 +88,15 @@ class _PermissionGuideStepState extends State<PermissionGuideStep> {
               Container(
                 padding: const EdgeInsets.all(DesignTokens.space10),
                 decoration: BoxDecoration(
-                  color: _allMiuiPermissionsGranted ? AppColors.success : AppColors.warning,
+                  color: _allMiuiPermissionsGranted
+                      ? AppColors.success
+                      : AppColors.warning,
                   borderRadius: BorderRadius.circular(DesignTokens.radius10),
                 ),
                 child: Icon(
-                  _allMiuiPermissionsGranted ? Icons.verified_user_rounded : Icons.security_rounded,
+                  _allMiuiPermissionsGranted
+                      ? Icons.verified_user_rounded
+                      : Icons.security_rounded,
                   color: Colors.white,
                   size: 22,
                 ),
@@ -133,7 +156,9 @@ class _PermissionGuideStepState extends State<PermissionGuideStep> {
           if (_needsAutoStart && _allBasicPermissionsGranted) ...[
             const SizedBox(height: DesignTokens.space20),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: DesignTokens.space8),
+              padding: const EdgeInsets.symmetric(
+                horizontal: DesignTokens.space8,
+              ),
               child: Row(
                 children: [
                   Icon(
@@ -159,10 +184,7 @@ class _PermissionGuideStepState extends State<PermissionGuideStep> {
               icon: Icons.start_rounded,
               title: '开机自启动',
               description: '确保应用开机后自动运行',
-              steps: [
-                '设置 → 应用设置 → 自启动管理',
-                '找到「巧巧小伙伴」并开启开关',
-              ],
+              steps: ['设置 → 应用设置 → 自启动管理', '找到「巧巧小伙伴」并开启开关'],
               isCompleted: _autoStartConfirmed,
               isDark: isDark,
               onTapSettings: () async {
@@ -182,10 +204,7 @@ class _PermissionGuideStepState extends State<PermissionGuideStep> {
               description: '避免系统杀死后台服务',
               steps: _isIgnoringBattery
                   ? ['已自动加入电池优化白名单']
-                  : [
-                      '点击「去设置」打开系统设置',
-                      '选择「不限制」或「允许」',
-                    ],
+                  : ['点击「去设置」打开系统设置', '选择「不限制」或「允许」'],
               isCompleted: _isIgnoringBattery || _batteryOptConfirmed,
               isDark: isDark,
               onTapSettings: () async {
@@ -204,11 +223,7 @@ class _PermissionGuideStepState extends State<PermissionGuideStep> {
                 icon: Icons.power_settings_new_rounded,
                 title: '省电策略',
                 description: '设置为「无限制」确保后台运行',
-                steps: [
-                  '设置 → 省电与电池 → 场景配置',
-                  '找到「巧巧小伙伴」',
-                  '选择「无限制」',
-                ],
+                steps: ['设置 → 省电与电池 → 场景配置', '找到「巧巧小伙伴」', '选择「无限制」'],
                 isCompleted: _powerSavingConfirmed,
                 isDark: isDark,
                 onTapSettings: () async {
@@ -230,16 +245,16 @@ class _PermissionGuideStepState extends State<PermissionGuideStep> {
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [
-                  (isDark ? AppColors.infoDarkMode : AppColors.info)
-                      .withValues(alpha: 0.15),
-                  (isDark ? AppColors.infoDarkMode : AppColors.info)
-                      .withValues(alpha: 0.05),
+                  (isDark ? AppColors.infoDarkMode : AppColors.info).withValues(
+                    alpha: 0.15,
+                  ),
+                  (isDark ? AppColors.infoDarkMode : AppColors.info).withValues(
+                    alpha: 0.05,
+                  ),
                 ],
               ),
               borderRadius: BorderRadius.circular(DesignTokens.radius14),
-              border: Border.all(
-                color: AppColors.info.withValues(alpha: 0.3),
-              ),
+              border: Border.all(color: AppColors.info.withValues(alpha: 0.3)),
             ),
             child: Row(
               children: [
@@ -366,7 +381,9 @@ class _PermissionGuideStepState extends State<PermissionGuideStep> {
                             ),
                             decoration: BoxDecoration(
                               color: AppColors.success.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(DesignTokens.radius6),
+                              borderRadius: BorderRadius.circular(
+                                DesignTokens.radius6,
+                              ),
                             ),
                             child: Text(
                               '已授权',

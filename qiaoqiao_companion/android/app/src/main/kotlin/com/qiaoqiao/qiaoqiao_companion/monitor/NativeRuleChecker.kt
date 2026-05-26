@@ -2,6 +2,9 @@ package com.qiaoqiao.qiaoqiao_companion.monitor
 
 import android.util.Log
 import org.json.JSONArray
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * 原生规则检查器
@@ -25,8 +28,42 @@ class NativeRuleChecker(private val repository: NativeRuleRepository) {
      */
     data class CheckResult(
         val blocked: Boolean,
-        val reason: String
-    )
+        val reason: String,
+        val ruleType: String = "",
+        /** -1 = 无倒计时，>0 = 需要显示倒计时，值为剩余秒数 */
+        val countdownSeconds: Long = -1L
+    ) {
+        val needsCountdown: Boolean get() = countdownSeconds > 0
+    }
+
+    /**
+     * 连续使用检查结果（stateless，每次从 DB 读取）
+     */
+    data class ContinuousUsageResult(
+        val action: ContinuousUsageAction = ContinuousUsageAction.NONE,
+        val remainingSeconds: Long = 0L
+    ) {
+        companion object {
+            fun none() = ContinuousUsageResult()
+            fun showCountdown(remaining: Long) = ContinuousUsageResult(ContinuousUsageAction.SHOW_COUNTDOWN, remaining)
+            fun updateCountdown(remaining: Long) = ContinuousUsageResult(ContinuousUsageAction.UPDATE_COUNTDOWN, remaining)
+            fun triggerRest() = ContinuousUsageResult(ContinuousUsageAction.TRIGGER_REST)
+            fun restActive(remaining: Long) = ContinuousUsageResult(ContinuousUsageAction.REST_ACTIVE, remaining)
+        }
+
+        val shouldShowCountdown: Boolean get() = action == ContinuousUsageAction.SHOW_COUNTDOWN
+        val shouldUpdateCountdown: Boolean get() = action == ContinuousUsageAction.UPDATE_COUNTDOWN
+        val isRestTriggered: Boolean get() = action == ContinuousUsageAction.TRIGGER_REST
+        val isRestActive: Boolean get() = action == ContinuousUsageAction.REST_ACTIVE
+    }
+
+    enum class ContinuousUsageAction {
+        NONE,
+        SHOW_COUNTDOWN,
+        UPDATE_COUNTDOWN,
+        TRIGGER_REST,
+        REST_ACTIVE
+    }
 
     // 缓存受监控应用列表（每30秒刷新一次）
     private var cachedMonitoredApps: List<NativeRuleRepository.MonitoredApp>? = null
@@ -40,7 +77,12 @@ class NativeRuleChecker(private val repository: NativeRuleRepository) {
      * @param packageName 前台应用包名
      * @return CheckResult
      */
-    fun checkApp(packageName: String): CheckResult {
+    fun checkApp(packageName: String, now: Long = System.currentTimeMillis()): CheckResult {
+        val restRemainingSeconds = repository.getActiveRestRemainingSeconds()
+        if (restRemainingSeconds > 0) {
+            return CheckResult(true, "正在休息中，还需要 ${formatRemainingTime(restRemainingSeconds)}", "forced_rest")
+        }
+
         // 1. 检查是否在受监控列表中
         val monitoredApps = getMonitoredApps()
         val monitoredApp = monitoredApps.find { it.packageName == packageName }
@@ -75,8 +117,70 @@ class NativeRuleChecker(private val repository: NativeRuleRepository) {
             }
         }
 
+        // 5. 连续使用检查（与禁止时段/总时间限制相同的 DB 读取路径）
+        val countdownResult = checkContinuousCountdown(packageName, now)
+        if (countdownResult != null) return countdownResult
+
         Log.d(TAG, "App $packageName allowed (no rule violation)")
         return CheckResult(false, "")
+    }
+
+    /**
+     * 连续使用 → 倒计时/强制休息检查
+     *
+     * 与 checkApp 的其它检查（时间段/总时间）使用相同的 stateless DB 读取模式，
+     * 每次从 [NativeRuleRepository] 读取连续使用设置和活跃会话，计算剩余时间并决策。
+     *
+     * @return 需要倒计时的 CheckResult，或 null（无需操作）
+     */
+    private fun checkContinuousCountdown(packageName: String, now: Long): CheckResult? {
+        val settings = repository.getContinuousUsageSettings()
+        if (!settings.enabled) return null
+
+        if (!repository.isMonitored(packageName)) return null
+
+        val restRemaining = repository.getActiveRestRemainingSeconds()
+        if (restRemaining > 0) return null // 强制休息由 checkApp 开头的 rest 分支处理
+
+        var session = repository.getActiveContinuousSession() ?: return null
+        val lastActivity = session.lastActivityTime ?: return null
+
+        // 累计时间
+        val elapsedSeconds = ((now - lastActivity) / 1000).coerceIn(1, 30)
+        val updatedSession = session.copy(
+            totalDurationSeconds = session.totalDurationSeconds + elapsedSeconds,
+            lastActivityTime = now,
+            updatedAt = now
+        )
+        repository.updateContinuousSession(updatedSession)
+        session = updatedSession
+
+        val remainingSeconds = settings.limitSeconds - session.totalDurationSeconds
+        Log.d(TAG, "Continuous: ${session.totalDurationSeconds}s used, ${remainingSeconds}s remaining")
+
+        if (remainingSeconds <= 0) {
+            // 已有已过期的强制休息 → 刚结束休息，停用会话防死循环
+            if (session.restEndTime != null && session.restEndTime!! > 0 && session.restEndTime!! <= now) {
+                repository.updateContinuousSession(session.copy(isActive = false, updatedAt = now))
+                Log.d(TAG, "Rest ended, session deactivated")
+                return null
+            }
+            // 触发强制休息
+            val restEndTime = now + settings.restSeconds * 1000L
+            repository.updateContinuousSession(session.copy(
+                totalDurationSeconds = settings.limitSeconds.coerceAtLeast(session.totalDurationSeconds),
+                restEndTime = restEndTime,
+                updatedAt = now
+            ))
+            Log.d(TAG, "Rest triggered, ends in ${settings.restMinutes}min")
+            return CheckResult(true, "正在休息中，还需要 ${formatRemainingTime(settings.restSeconds)}", "forced_rest")
+        }
+
+        if (remainingSeconds <= 300) {
+            return CheckResult(false, "", "continuous_countdown", remainingSeconds)
+        }
+
+        return null
     }
 
     /**
@@ -151,6 +255,12 @@ class NativeRuleChecker(private val repository: NativeRuleRepository) {
         }
 
         return null
+    }
+
+    private fun formatRemainingTime(seconds: Long): String {
+        val minutes = seconds / 60
+        val remainingSeconds = seconds % 60
+        return if (minutes > 0) "${minutes}分${remainingSeconds}秒" else "${remainingSeconds}秒"
     }
 
     /**

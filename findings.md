@@ -56,6 +56,18 @@
 | daily_stats | 每日统计表 |
 | app_categories | 应用分类表 |
 
+### Onboarding 引导页修复发现 (2026-05-23)
+
+- 用户当前要修复三类问题：权限设置返回后不实时刷新、电池管理设置跳转缺口、使用时间设置需要写入真实规则。
+- 权限引导主页面在 `qiaoqiao_companion/lib/features/onboarding/presentation/steps/permission_guide_step.dart`，当前主要通过 `initState()` 和按钮点击后的 `_checkPermissions()` 刷新，缺少 `AppLifecycleState.resumed` 返回刷新。
+- 设置页权限复查弹窗在 `qiaoqiao_companion/lib/features/settings/presentation/settings_page.dart`，有手动刷新能力，也可考虑同类生命周期刷新模式。
+- 全局初始化权限状态在 `qiaoqiao_companion/lib/app/app_initializer.dart` 的 `AppInitializationNotifier.checkPermissions()`，注释已有“从设置返回时调用”的意图。
+- 平台服务入口在 `qiaoqiao_companion/lib/core/platform/monitor_service.dart`：`openBatterySettings()`、`openPowerSavingSettings()`、`openAutoStartSettings()` 已存在；`openAppDetailSettings()` 调用链需要修复。
+- Android 侧 `ServiceChannel.kt` 已有电池优化和省电策略跳转；`RomUtils.kt` 已有 `getAppDetailSettingIntent(context)` 可复用作为应用详情兜底入口。
+- `RulesSetupStep` 会把 `total_minutes`、`game_minutes`、`video_minutes` 写入 onboarding 临时状态，但最终 `OnboardingNotifier._saveRulesToDatabase()` 仍混用旧规则体系。
+- 当前真实规则执行链路以 `rules.rule_type = 'total_time'`、`monitored_apps`、`time_periods` 为核心；原生 `NativeRuleChecker` 不读取旧 `app_category` 或 `time_block` 规则。
+- 需要避免 onboarding 完成时调用 `RuleDao.deleteAll()` 误删用户已有规则。
+
 ---
 
 ## Technical Decisions

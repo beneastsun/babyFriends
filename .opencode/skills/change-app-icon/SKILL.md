@@ -33,7 +33,7 @@ icon (and optionally the app name) in the qiaoqiao_companion Flutter project.
    powershell -ExecutionPolicy Bypass -File "qiaoqiao_companion/scripts/add_icon_theme.ps1" -Name <name> -ProjectDir (Resolve-Path "qiaoqiao_companion")
    ```
 
-5. Update `strings.xml` to switch to the new theme:
+5. Update `strings.xml` to switch to the new theme (the Gradle task reads this):
 
    ```xml
    <!-- android/app/src/main/res/values/strings.xml -->
@@ -47,8 +47,29 @@ icon (and optionally the app name) in the qiaoqiao_companion Flutter project.
    ```
    Done! Rebuild the app with:
      cd qiaoqiao_companion
-     flutter build apk --release
+     flutter clean
+     flutter build apk --debug
    ```
+
+## How the Gradle task works
+
+The `android/app/build.gradle.kts` has an `applyIconTheme` task that runs before
+every build. It reads `<string name="app_icon_theme">` from `strings.xml`,
+then:
+1. Deletes old icon files from `src/main/res/`
+2. Copies the theme's files from `src/icons/{theme}/res/` to `src/main/res/`
+
+The `add_icon_theme.ps1` script creates both the theme source
+(`src/icons/{name}/res/`) and directly writes into `src/main/res/`, so
+the first-time setup works even without the Gradle task.
+
+## Troubleshooting
+
+If icons don't update on device:
+1. `flutter clean` first (clears build cache)
+2. Uninstall the old app from the device
+3. Reboot the device (clears MIUI icon cache)
+4. Install the new APK
 
 ## Notes
 

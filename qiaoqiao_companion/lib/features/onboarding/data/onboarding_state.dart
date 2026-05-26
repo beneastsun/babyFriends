@@ -3,7 +3,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:qiaoqiao_companion/core/database/app_database.dart';
 import 'package:qiaoqiao_companion/core/database/daos/daos.dart';
 import 'package:qiaoqiao_companion/core/constants/database_constants.dart';
+import 'package:qiaoqiao_companion/core/platform/platform.dart';
 import 'package:qiaoqiao_companion/shared/models/models.dart';
+import 'package:qiaoqiao_companion/shared/providers/providers.dart';
 
 /// Onboarding状态
 class OnboardingState {
@@ -33,14 +35,16 @@ class OnboardingState {
 /// Onboarding Provider
 final onboardingProvider =
     StateNotifierProvider<OnboardingNotifier, OnboardingState>((ref) {
-  return OnboardingNotifier();
-});
+      return OnboardingNotifier(ref);
+    });
 
 /// Onboarding Notifier
 class OnboardingNotifier extends StateNotifier<OnboardingState> {
   static const _completedKey = 'onboarding_completed';
 
-  OnboardingNotifier() : super(const OnboardingState());
+  final Ref _ref;
+
+  OnboardingNotifier(this._ref) : super(const OnboardingState());
 
   /// 下一步
   void nextStep() {
@@ -79,67 +83,127 @@ class OnboardingNotifier extends StateNotifier<OnboardingState> {
   Future<void> _saveRulesToDatabase() async {
     final db = AppDatabase.instance;
     final ruleDao = RuleDao(db);
+    final monitoredAppDao = MonitoredAppDao(db);
+    final timePeriodDao = TimePeriodDao(db);
 
-    // 从 state.data 获取用户设置的规则
     final totalMinutes = state.data['total_minutes'] as int? ?? 180;
     final gameMinutes = state.data['game_minutes'] as int? ?? 60;
     final videoMinutes = state.data['video_minutes'] as int? ?? 90;
 
-    // 清除旧规则
-    await ruleDao.deleteAll();
-
-    // 保存总时间规则
-    await ruleDao.insert(Rule(
+    final existingTotalRule = await ruleDao.getByTypeAndTarget(
+      RuleType.totalTime,
+      null,
+    );
+    final totalRule = Rule(
+      id: existingTotalRule?.id,
       ruleType: RuleType.totalTime,
       weekdayLimitMinutes: totalMinutes,
-      weekendLimitMinutes: (totalMinutes * 1.5).toInt(), // 周末多50%
+      weekendLimitMinutes: (totalMinutes * 1.5).toInt(),
       enabled: true,
-    ));
+    );
+    if (existingTotalRule == null) {
+      await ruleDao.insert(totalRule);
+    } else {
+      await ruleDao.update(totalRule);
+    }
 
-    // 保存游戏时间规则
-    await ruleDao.insert(Rule(
-      ruleType: RuleType.appCategory,
-      target: AppCategory.game.code,
-      weekdayLimitMinutes: gameMinutes,
-      weekendLimitMinutes: (gameMinutes * 1.5).toInt(),
-      enabled: true,
-    ));
+    final now = DateTime.now();
+    final installedApps = await UsageStatsService.getInstalledApps();
+    final defaultApps = <String, ({String name, String category, int limit})>{
+      'com.tencent.tmgp.sgame': (
+        name: '王者荣耀',
+        category: AppCategory.game.code,
+        limit: gameMinutes,
+      ),
+      'com.tencent.tmgp.pubgmhd': (
+        name: '和平精英',
+        category: AppCategory.game.code,
+        limit: gameMinutes,
+      ),
+      'com.netease.mc': (
+        name: '我的世界',
+        category: AppCategory.game.code,
+        limit: gameMinutes,
+      ),
+      'com.ss.android.ugc.aweme': (
+        name: '抖音',
+        category: AppCategory.video.code,
+        limit: videoMinutes,
+      ),
+      'tv.danmaku.bili': (
+        name: '哔哩哔哩',
+        category: AppCategory.video.code,
+        limit: videoMinutes,
+      ),
+      'com.qiyi.video': (
+        name: '爱奇艺',
+        category: AppCategory.video.code,
+        limit: videoMinutes,
+      ),
+    };
 
-    // 保存视频时间规则
-    await ruleDao.insert(Rule(
-      ruleType: RuleType.appCategory,
-      target: AppCategory.video.code,
-      weekdayLimitMinutes: videoMinutes,
-      weekendLimitMinutes: (videoMinutes * 1.5).toInt(),
-      enabled: true,
-    ));
+    for (final appInfo in installedApps) {
+      final defaultApp = defaultApps[appInfo.packageName];
+      if (defaultApp == null) continue;
 
-    // 保存默认的禁止时段规则
-    // 睡觉时间：21:00-07:00
-    await ruleDao.insert(Rule(
-      ruleType: RuleType.timeBlock,
-      timeStart: '21:00',
-      timeEnd: '07:00',
-      enabled: true,
-    ));
+      final existingApp = await monitoredAppDao.getByPackageName(
+        appInfo.packageName,
+      );
+      final app = MonitoredApp(
+        packageName: appInfo.packageName,
+        appName: appInfo.appName.isNotEmpty ? appInfo.appName : defaultApp.name,
+        dailyLimitMinutes: defaultApp.limit,
+        category: defaultApp.category,
+        enabled: true,
+        createdAt: existingApp?.createdAt ?? now,
+        updatedAt: now,
+      );
+      if (existingApp == null) {
+        await monitoredAppDao.insert(app);
+      } else {
+        await monitoredAppDao.update(app);
+      }
+    }
 
-    // 工作日上课时间：上午 9:00-12:00
-    await ruleDao.insert(Rule(
-      ruleType: RuleType.timeBlock,
-      target: 'weekday',
-      timeStart: '09:00',
-      timeEnd: '12:00',
-      enabled: true,
-    ));
+    final existingPeriods = await timePeriodDao.getAll();
+    if (existingPeriods.isEmpty) {
+      await timePeriodDao.insert(
+        TimePeriod(
+          mode: TimePeriodMode.blocked,
+          timeStart: '21:00',
+          timeEnd: '07:00',
+          days: const [1, 2, 3, 4, 5, 6, 7],
+          enabled: true,
+          createdAt: now,
+        ),
+      );
+      await timePeriodDao.insert(
+        TimePeriod(
+          mode: TimePeriodMode.blocked,
+          timeStart: '09:00',
+          timeEnd: '12:00',
+          days: const [1, 2, 3, 4, 5],
+          enabled: true,
+          createdAt: now,
+        ),
+      );
+      await timePeriodDao.insert(
+        TimePeriod(
+          mode: TimePeriodMode.blocked,
+          timeStart: '14:00',
+          timeEnd: '17:00',
+          days: const [1, 2, 3, 4, 5],
+          enabled: true,
+          createdAt: now,
+        ),
+      );
+    }
 
-    // 工作日上课时间：下午 14:00-17:00
-    await ruleDao.insert(Rule(
-      ruleType: RuleType.timeBlock,
-      target: 'weekday',
-      timeStart: '14:00',
-      timeEnd: '17:00',
-      enabled: true,
-    ));
+    await Future.wait([
+      _ref.read(rulesProvider.notifier).load(),
+      _ref.read(monitoredAppsProvider.notifier).load(),
+      _ref.read(timePeriodsProvider.notifier).load(),
+    ]);
   }
 
   /// 检查是否已完成

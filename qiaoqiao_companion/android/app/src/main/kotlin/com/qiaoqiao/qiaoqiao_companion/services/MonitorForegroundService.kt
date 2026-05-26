@@ -297,31 +297,55 @@ class MonitorForegroundService : Service() {
 
     /**
      * 原生监控轮询 Runnable
-     * 每 5 秒检测前台 App，检查规则，必要时显示锁定覆盖层
+     * 每 5 秒检测前台 App，检查规则，必要时显示锁定覆盖层或倒计时悬浮窗
      */
     private val monitorRunnable = object : Runnable {
         override fun run() {
             try {
+                val now = System.currentTimeMillis()
                 val foregroundApp = UsageStatsHelper.getCurrentForegroundApp(
                     applicationContext, packageName
                 )
 
+                // ===== 单一路径规则检查（checkApp 内部包含连续使用、时间段、总时间、每日限制） =====
                 if (foregroundApp != null) {
-                    val result = nativeRuleChecker!!.checkApp(foregroundApp)
+                    val result = nativeRuleChecker!!.checkApp(foregroundApp, now)
+
+                    // 1. 连续使用倒计时（优先于锁定覆盖层）
+                    if (result.needsCountdown) {
+                        // 有倒计时时隐藏锁定覆盖层
+                        if (lastBlockedPackage != null) {
+                            nativeOverlayManager?.hideOverlay()
+                            lastBlockedPackage = null
+                        }
+                        if (nativeOverlayManager?.isCountdownShowing() != true) {
+                            nativeOverlayManager?.showCountdownOverlay(result.countdownSeconds) {
+                                Log.d(TAG, "Countdown ended - rest should be active")
+                            }
+                        }
+                    } else {
+                        // 不需要倒计时 → 隐藏倒计时
+                        if (nativeOverlayManager?.isCountdownShowing() == true) {
+                            nativeOverlayManager?.hideCountdownOverlay()
+                        }
+                    }
+
+                    // 2. 锁定/强制休息
                     if (result.blocked) {
-                        // Flutter 引擎存活时由 Flutter 侧处理覆盖层，避免弹两个窗口
-                        if (!com.qiaoqiao.qiaoqiao_companion.MainActivity.isFlutterAlive) {
+                        if (!com.qiaoqiao.qiaoqiao_companion.MainActivity.isFlutterAlive || result.ruleType == "forced_rest") {
                             nativeOverlayManager!!.showLockOverlay(result.reason, foregroundApp)
                         }
                         lastBlockedPackage = foregroundApp
-                        Log.d(TAG, "Blocked $foregroundApp: ${result.reason}")
+                        Log.d(TAG, "Blocked $foregroundApp: ${result.reason} (${result.ruleType})")
                     } else if (lastBlockedPackage == foregroundApp) {
-                        // 之前被阻止的 App 现在合规了（例如时间过了），移除覆盖层
                         nativeOverlayManager!!.hideOverlay()
                         lastBlockedPackage = null
                     }
                 } else {
-                    // 不在前台或在自己 App 中，移除覆盖层
+                    // 无前台应用：隐藏所有覆盖层
+                    if (nativeOverlayManager?.isCountdownShowing() == true) {
+                        nativeOverlayManager?.hideCountdownOverlay()
+                    }
                     if (lastBlockedPackage != null) {
                         nativeOverlayManager?.hideOverlay()
                         lastBlockedPackage = null
@@ -332,6 +356,37 @@ class MonitorForegroundService : Service() {
             }
 
             monitorHandler?.postDelayed(this, MONITOR_INTERVAL_MS)
+        }
+    }
+
+    /**
+     * 处理连续使用检查结果（stateless 版本，与禁止时段弹窗相同方式）
+     */
+    private fun handleContinuousResult(
+        result: NativeRuleChecker.ContinuousUsageResult,
+        packageName: String
+    ) {
+        when {
+            result.shouldShowCountdown -> {
+                Log.d(TAG, "Showing countdown overlay: ${result.remainingSeconds}s")
+                if (lastBlockedPackage != null) {
+                    nativeOverlayManager?.hideOverlay()
+                    lastBlockedPackage = null
+                }
+                nativeOverlayManager?.showCountdownOverlay(result.remainingSeconds) {
+                    Log.d(TAG, "Countdown ended - rest should be active")
+                }
+            }
+            result.shouldUpdateCountdown -> {
+                nativeOverlayManager?.updateCountdownTime(result.remainingSeconds)
+            }
+            result.isRestTriggered -> {
+                nativeOverlayManager?.hideCountdownOverlay()
+                Log.d(TAG, "Rest triggered, countdown hidden")
+            }
+            result.isRestActive -> {
+                // 休息中，强制休息锁由 checkApp 的 forced_rest 分支处理
+            }
         }
     }
 

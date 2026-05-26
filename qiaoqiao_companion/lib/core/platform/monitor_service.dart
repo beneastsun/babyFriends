@@ -5,12 +5,16 @@ import 'package:flutter/services.dart';
 class MonitorService {
   MonitorService._();
 
-  static const _channel = MethodChannel('com.qiaoqiao.qiaoqiao_companion/service');
+  static const _channel = MethodChannel(
+    'com.qiaoqiao.qiaoqiao_companion/service',
+  );
 
   /// 启动前台服务
   static Future<bool> startForegroundService() async {
     try {
-      final result = await _channel.invokeMethod<bool>('startForegroundService');
+      final result = await _channel.invokeMethod<bool>(
+        'startForegroundService',
+      );
       return result ?? false;
     } on PlatformException catch (e) {
       print('启动前台服务失败: ${e.message}');
@@ -60,7 +64,9 @@ class MonitorService {
   /// 检查是否需要自启动权限引导
   static Future<bool> checkAutoStartPermission() async {
     try {
-      final result = await _channel.invokeMethod<bool>('checkAutoStartPermission');
+      final result = await _channel.invokeMethod<bool>(
+        'checkAutoStartPermission',
+      );
       return result ?? false;
     } on PlatformException catch (e) {
       print('检查自启动权限失败: ${e.message}');
@@ -82,11 +88,10 @@ class MonitorService {
   /// 打开应用详情设置（作为备选方案）
   static Future<bool> openAppDetailSettings() async {
     try {
-      const channel = MethodChannel('com.qiaoqiao.qiaoqiao_companion/usage_stats');
-      await channel.invokeMethod('openAppSettings');
-      return true;
-    } catch (e) {
-      print('打开应用详情设置失败: $e');
+      final result = await _channel.invokeMethod<bool>('openAppDetailSettings');
+      return result ?? false;
+    } on PlatformException catch (e) {
+      print('打开应用详情设置失败: ${e.message}');
       return false;
     }
   }
@@ -105,7 +110,9 @@ class MonitorService {
   /// 检查是否忽略电池优化（是否在白名单中）
   static Future<bool> checkBatteryOptimization() async {
     try {
-      final result = await _channel.invokeMethod<bool>('checkBatteryOptimization');
+      final result = await _channel.invokeMethod<bool>(
+        'checkBatteryOptimization',
+      );
       return result ?? false;
     } on PlatformException catch (e) {
       print('检查电池优化失败: ${e.message}');
@@ -127,7 +134,9 @@ class MonitorService {
   /// 打开省电设置（厂商特定）
   static Future<bool> openPowerSavingSettings() async {
     try {
-      final result = await _channel.invokeMethod<bool>('openPowerSavingSettings');
+      final result = await _channel.invokeMethod<bool>(
+        'openPowerSavingSettings',
+      );
       return result ?? false;
     } on PlatformException catch (e) {
       print('打开省电设置失败: ${e.message}');
