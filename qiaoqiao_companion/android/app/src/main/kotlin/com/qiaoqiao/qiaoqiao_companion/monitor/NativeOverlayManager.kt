@@ -49,6 +49,13 @@ class NativeOverlayManager(private val context: Context) {
     private var countdownCancelled = false
     private var onCountdownEnded: Runnable? = null
 
+    // 覆盖层内倒计时（用于锁屏视图上的休息倒计时）
+    private var backButton: TextView? = null
+    private var lockCountdownText: TextView? = null
+    private var lockCountdownAnimator: ValueAnimator? = null
+    private var lockCountdownCancelled = false
+    private var isLockOverlayWithCountdown = false
+
     /**
      * 检查是否有悬浮窗权限
      */
@@ -65,8 +72,11 @@ class NativeOverlayManager(private val context: Context) {
      *
      * @param reason 阻止原因
      * @param packageName 被阻止的应用包名
+     * @param durationSeconds 可选：休息倒计时秒数（0=不显示倒计时）
      */
-    fun showLockOverlay(reason: String, packageName: String) {
+    fun showLockOverlay(reason: String, packageName: String, durationSeconds: Int = 0) {
+        cancelLockCountdown()
+
         if (!hasOverlayPermission()) {
             Log.w(TAG, "No overlay permission, cannot show lock")
             return
@@ -86,7 +96,7 @@ class NativeOverlayManager(private val context: Context) {
         try {
             currentBlockedPackage = packageName
             windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-            overlayView = createLockView(reason)
+            overlayView = createLockView(reason, durationSeconds)
 
             val flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                     WindowManager.LayoutParams.FLAG_FULLSCREEN or
@@ -118,7 +128,13 @@ class NativeOverlayManager(private val context: Context) {
                 ?.setInterpolator(DecelerateInterpolator())
                 ?.start()
 
-            Log.d(TAG, "Lock overlay shown for $packageName: $reason")
+            // 启动覆盖层自带的休息倒计时
+            if (durationSeconds > 0) {
+                isLockOverlayWithCountdown = true
+                startLockCountdown(durationSeconds.toLong())
+            }
+
+            Log.d(TAG, "Lock overlay shown for $packageName: $reason (duration=$durationSeconds)")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to show lock overlay", e)
         }
@@ -129,6 +145,7 @@ class NativeOverlayManager(private val context: Context) {
      */
     fun hideOverlay() {
         if (!isShowing) return
+        cancelLockCountdown()
 
         overlayView?.let { view ->
             try {
@@ -156,6 +173,7 @@ class NativeOverlayManager(private val context: Context) {
      * 立即隐藏覆盖层（无动画）
      */
     private fun hideOverlayImmediate() {
+        cancelLockCountdown()
         try {
             overlayView?.let { windowManager?.removeView(it) }
         } catch (e: Exception) {
@@ -181,7 +199,7 @@ class NativeOverlayManager(private val context: Context) {
      * 创建锁定视图
      * 使用与 OverlayChannel 相同的糖果主题配色
      */
-    private fun createLockView(reason: String): View {
+    private fun createLockView(reason: String, durationSeconds: Int = 0): View {
         val candyPurple = 0xFFB57EDC.toInt()
         val candyPeach = 0xFFFFAB91.toInt()
         val candyRed = 0xFFFF6B6B.toInt()
@@ -289,9 +307,56 @@ class NativeOverlayManager(private val context: Context) {
         }
         reasonContainer.addView(reasonView)
 
-        // 返回按钮
-        val backButton = TextView(context).apply {
-            text = "回到纹纹小伙伴 🐻"
+        // 覆盖层休息倒计时（durationSeconds > 0 时显示）
+        val countdownView = if (durationSeconds > 0) {
+            FrameLayout(context).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    topMargin = 16
+                }
+                setPadding(
+                    (32 * density).toInt(),
+                    (12 * density).toInt(),
+                    (32 * density).toInt(),
+                    (12 * density).toInt()
+                )
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(0x66FFFFFF.toInt())
+                    cornerRadius = 28f
+                }
+
+                val innerLayout = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER
+                }
+
+                val timerIcon = TextView(context).apply {
+                    text = "⏰"
+                    textSize = 20f
+                    setPadding(0, 0, (8 * density).toInt(), 0)
+                }
+
+                val timeText = TextView(context).apply {
+                    text = formatCountdownTime(durationSeconds.toLong())
+                    textSize = 26f
+                    setTextColor(0xFFFFFFFF.toInt())
+                    typeface = Typeface.DEFAULT_BOLD
+                }
+                lockCountdownText = timeText
+
+                innerLayout.addView(timerIcon)
+                innerLayout.addView(timeText)
+                addView(innerLayout)
+            }
+        } else null
+
+        // 返回按钮（有倒计时时初始禁用）
+        this.backButton = null
+        val btn = TextView(context).apply {
+            text = if (durationSeconds > 0) "回到纹纹小伙伴 🐻" else "回到纹纹小伙伴 🐻"
             textSize = 16f
             setTextColor(0xFFFFFFFF.toInt())
             gravity = Gravity.CENTER
@@ -302,21 +367,34 @@ class NativeOverlayManager(private val context: Context) {
                 (18 * density).toInt()
             )
             typeface = Typeface.DEFAULT_BOLD
-            background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(candyRed)
-                cornerRadius = 28f
+            if (durationSeconds > 0) {
+                isEnabled = false
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(0xFF999999.toInt())
+                    cornerRadius = 28f
+                }
+            } else {
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(candyRed)
+                    cornerRadius = 28f
+                }
             }
             setOnClickListener {
-                hideOverlay()
-                launchMainActivity()
+                if (isEnabled) {
+                    cancelLockCountdown()
+                    hideOverlay()
+                    launchMainActivity()
+                }
             }
         }
+        this@NativeOverlayManager.backButton = btn
 
         // 组装卡片
         card.addView(iconContainer)
         card.addView(titleView)
         card.addView(reasonContainer)
-        card.addView(backButton)
+        countdownView?.let { card.addView(it) }
+        card.addView(btn)
 
         // 卡片布局参数
         val screenWidth = context.resources.displayMetrics.widthPixels
@@ -533,6 +611,58 @@ class NativeOverlayManager(private val context: Context) {
     }
 
     /**
+     * 启动锁屏覆盖层上的倒计时（休息倒计时）
+     */
+    private fun startLockCountdown(totalSeconds: Long) {
+        lockCountdownCancelled = false
+        val startSec = totalSeconds.coerceAtLeast(0)
+
+        lockCountdownText?.text = formatCountdownTime(startSec)
+
+        lockCountdownAnimator = ValueAnimator.ofInt(startSec.toInt(), 0).apply {
+            duration = startSec * 1000L
+            interpolator = LinearInterpolator()
+
+            addUpdateListener { animation ->
+                if (lockCountdownCancelled) return@addUpdateListener
+                val current = animation.animatedValue as Int
+                lockCountdownText?.text = formatCountdownTime(current.coerceAtLeast(0).toLong())
+            }
+
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationCancel(animation: Animator) {
+                    lockCountdownCancelled = true
+                }
+
+                override fun onAnimationEnd(animation: Animator) {
+                    if (lockCountdownCancelled) return
+                    lockCountdownText?.text = "0秒"
+                    // 启用返回按钮
+                    backButton?.let { btn ->
+                        btn.isEnabled = true
+                        btn.background = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(0xFFFF6B6B.toInt())
+                            cornerRadius = 28f
+                        }
+                    }
+                    isLockOverlayWithCountdown = false
+                }
+            })
+        }
+        lockCountdownAnimator?.start()
+    }
+
+    /**
+     * 取消锁屏覆盖层倒计时
+     */
+    private fun cancelLockCountdown() {
+        lockCountdownCancelled = true
+        lockCountdownAnimator?.cancel()
+        lockCountdownAnimator = null
+        isLockOverlayWithCountdown = false
+    }
+
+    /**
      * 格式化倒计时时间 MM:SS
      */
     private fun formatCountdownTime(seconds: Long): String {
@@ -596,6 +726,7 @@ class NativeOverlayManager(private val context: Context) {
      */
     fun destroy() {
         handler.removeCallbacksAndMessages(null)
+        cancelLockCountdown()
         hideOverlayImmediate()
         hideCountdownOverlay()
         windowManager = null

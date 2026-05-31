@@ -67,6 +67,10 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
     private var isOverlayShowing = false
     private var currentPackageName: String = ""
     private var isDismissible: Boolean = true
+    private var shouldLaunchAppOnDismiss: Boolean = true
+
+    // 锁定弹窗休息截止时刻（墙上时钟毫秒）
+    private var lockOverlayRestEndTime: Long = 0L
 
     // 倒计时悬浮窗相关
     private var countdownWidgetView: View? = null
@@ -74,6 +78,12 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
     private var countdownAnimator: ValueAnimator? = null
     private var countdownWidgetLayoutParams: WindowManager.LayoutParams? = null
     private var countdownCancelled = false
+
+    // 原生侧锁定弹窗兜底参数（Flutter 进程死亡时使用）
+    private var lockFallbackTitle: String? = null
+    private var lockFallbackMessage: String? = null
+    private var lockFallbackDurationSeconds: Int = 0
+    private var lockFallbackPackageName: String? = null
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
@@ -95,7 +105,8 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
                 val packageName = call.argument<String>("packageName") ?: ""
                 val dismissDelaySeconds = call.argument<Int>("dismissDelaySeconds") ?: 0
                 val remainingDismissSeconds = call.argument<Int>("remainingDismissSeconds") ?: 0
-                showOverlay(title, message, type, durationSeconds, dismissible, packageName, dismissDelaySeconds, remainingDismissSeconds, result)
+                val launchAppOnDismiss = call.argument<Boolean>("launchAppOnDismiss") ?: true
+                showOverlay(title, message, type, durationSeconds, dismissible, packageName, dismissDelaySeconds, remainingDismissSeconds, launchAppOnDismiss, result)
             }
 
             "hideOverlay" -> {
@@ -109,7 +120,15 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
 
             "showCountdownWidget" -> {
                 val totalSeconds = call.argument<Int>("totalSeconds") ?: 300
-                showCountdownWidget(totalSeconds, result)
+                val lockTitle = call.argument<String>("lockTitle")
+                val lockMessage = call.argument<String>("lockMessage")
+                val lockDurationSeconds = call.argument<Int>("lockDurationSeconds") ?: 0
+                val lockPackageName = call.argument<String>("lockPackageName")
+                showCountdownWidget(
+                    totalSeconds, result,
+                    lockTitle, lockMessage,
+                    lockDurationSeconds, lockPackageName
+                )
             }
 
             "hideCountdownWidget" -> {
@@ -139,6 +158,7 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
         packageName: String,
         dismissDelaySeconds: Int,
         remainingDismissSeconds: Int,
+        launchAppOnDismiss: Boolean,
         result: MethodChannel.Result
     ) {
         if (!hasOverlayPermission(context)) {
@@ -153,6 +173,7 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
         // 保存状态
         currentPackageName = packageName
         isDismissible = dismissible
+        shouldLaunchAppOnDismiss = launchAppOnDismiss
 
         try {
             windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -172,10 +193,9 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
                         WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
             } else {
                 // 提醒类型：允许窗口外触摸穿透，但窗口内按钮仍可点击
-                // 添加 FLAG_LAYOUT_IN_SCREEN 确保全屏时也能显示在上层
+                // 注意：不使用 FLAG_LOCAL_FOCUS_MODE，该标志会阻止子 View 接收触摸事件
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                        WindowManager.LayoutParams.FLAG_LOCAL_FOCUS_MODE
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
             }
 
             val layoutParams = WindowManager.LayoutParams(
@@ -195,6 +215,11 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
 
             windowManager?.addView(overlayView, layoutParams)
             isOverlayShowing = true
+
+            // lock 类型记录休息截止时刻
+            if (type == "lock" && durationSeconds > 0) {
+                lockOverlayRestEndTime = System.currentTimeMillis() + durationSeconds * 1000L
+            }
 
             // 入场动画
             overlayView?.alpha = 0f
@@ -330,7 +355,7 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
         }
         messageContainer.addView(messageView)
 
-        // 倒计时（如果有）- 白色容器
+        // 倒计时（如果有）- 白色容器，显示 X分X秒 格式
         var countdownTextView: TextView? = null
         val countdownView = if (durationSeconds > 0) {
             android.widget.FrameLayout(context).apply {
@@ -352,7 +377,7 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
                 }
 
                 countdownTextView = TextView(context).apply {
-                    text = "${durationSeconds}秒"
+                    text = formatCountdownTimeHuman(durationSeconds)
                     textSize = 28f
                     setTextColor(0xFFFFFFFF.toInt())
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -381,15 +406,25 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
         }
 
         // 关闭按钮（如果可关闭或有延迟关闭时间）
+        var closeButton: TextView? = null
         if (dismissible || dismissDelaySeconds > 0) {
-            val closeButton = TextView(context).apply {
+            closeButton = TextView(context).apply {
                 textSize = 16f
                 setTextColor(0xFFFFFFFF.toInt())
                 gravity = Gravity.CENTER
                 setPadding(48, 20, 48, 20)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
 
-                if (dismissDelaySeconds > 0) {
+                val isLockType = type == "lock"
+                if (isLockType && durationSeconds > 0) {
+                    // lock 类型：按钮始终可点击，点击有效性由墙上时钟控制
+                    isEnabled = true
+                    text = formatCountdownTimeHuman(durationSeconds) + "后可关闭"
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(accentColor)
+                        cornerRadius = 28f
+                    }
+                } else if (dismissDelaySeconds > 0) {
                     // 延迟关闭模式
                     val initialSeconds = if (remainingDismissSeconds > 0) remainingDismissSeconds else dismissDelaySeconds
                     isEnabled = remainingDismissSeconds <= 0
@@ -408,22 +443,33 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
                 }
 
                 setOnClickListener {
-                    if (isEnabled) {
-                        // 通知 Flutter 用户关闭了 overlay
-                        notifyDismissed()
+                    val canDismiss = if (isLockType && durationSeconds > 0) {
+                        System.currentTimeMillis() >= lockOverlayRestEndTime
+                    } else {
+                        isEnabled
+                    }
+                    if (canDismiss) {
+                        try {
+                            notifyDismissed()
+                        } catch (_: Exception) { }
                         hideOverlay()
-                        // 启动巧巧app，将禁用的app推到后台
-                        launchMainActivity()
+                        if (shouldLaunchAppOnDismiss) {
+                            launchMainActivity()
+                        }
                     }
                 }
-            }
-            card.addView(closeButton)
+            }.also { card.addView(it) }
+        }
 
-            // 如果有延迟关闭时间且还未启用，启动倒计时
+        if (durationSeconds > 0 && countdownTextView != null) {
+            startCountdown(countdownTextView!!, durationSeconds, closeButton, accentColor)
+        }
+
+        // 非 lock 类型的延迟关闭倒计时
+        if (closeButton != null && !(type == "lock" && durationSeconds > 0)) {
             if (dismissDelaySeconds > 0 && remainingDismissSeconds <= 0) {
                 startDismissCountdown(closeButton, dismissDelaySeconds)
             } else if (remainingDismissSeconds > 0) {
-                // 使用剩余秒数启动倒计时
                 startDismissCountdown(closeButton, remainingDismissSeconds)
             }
         }
@@ -444,11 +490,6 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
 
         container.addView(card, cardParams)
 
-        // 如果有倒计时，启动倒计时动画
-        if (durationSeconds > 0 && countdownTextView != null) {
-            startCountdown(countdownTextView!!, durationSeconds)
-        }
-
         return container
     }
 
@@ -462,25 +503,43 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
     }
 
     /**
-     * 启动倒计时
+     * 启动倒计时 - 带结束回调（与按钮启用同步）
      */
-    private fun startCountdown(textView: TextView, seconds: Int) {
+    private fun startCountdown(textView: TextView, seconds: Int, closeButton: TextView? = null, accentColor: Int? = null) {
         var remaining = seconds
         val animator = ValueAnimator.ofInt(seconds, 0).apply {
             duration = seconds * 1000L
-            interpolator = DecelerateInterpolator()
+            interpolator = android.view.animation.LinearInterpolator()
 
             addUpdateListener { animation ->
                 val current = animation.animatedValue as Int
                 if (current != remaining) {
                     remaining = current
-                    textView.text = "${remaining}秒"
+                    textView.text = formatCountdownTimeHuman(current)
+                }
+                if (closeButton != null) {
+                    if (System.currentTimeMillis() >= lockOverlayRestEndTime) {
+                        closeButton.text = "知道了 ✨"
+                        closeButton.background = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(accentColor ?: 0xFF81C784.toInt())
+                            cornerRadius = 28f
+                        }
+                    } else {
+                        closeButton.text = formatCountdownTimeHuman(current) + "后可关闭"
+                    }
                 }
             }
 
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     textView.text = "0秒"
+                    if (closeButton != null) {
+                        closeButton.text = "知道了 ✨"
+                        closeButton.background = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(accentColor ?: 0xFF81C784.toInt())
+                            cornerRadius = 28f
+                        }
+                    }
                 }
             })
         }
@@ -492,11 +551,10 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
      */
     private fun startDismissCountdown(button: TextView, seconds: Int) {
         var remaining = seconds
-        button.tag = "countdown_active"  // 标记倒计时正在进行
+        button.tag = "countdown_active"
         val handler = android.os.Handler(android.os.Looper.getMainLooper())
         val runnable = object : Runnable {
             override fun run() {
-                // 检查按钮是否还有效（视图可能已被移除）
                 if (button.tag != "countdown_active") return
 
                 remaining--
@@ -504,12 +562,14 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
                     button.text = "${remaining}秒后可关闭"
                     handler.postDelayed(this, 1000)
                 } else {
-                    // 倒计时结束，启用按钮
-                    button.tag = "countdown_done"
+                    button.tag = null
                     button.text = "知道了"
                     button.isEnabled = true
                     button.isClickable = true
-                    button.setBackgroundColor(0xFF4CAF50.toInt())
+                    button.background = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(0xFF4CAF50.toInt())
+                        cornerRadius = 28f
+                    }
                 }
             }
         }
@@ -529,10 +589,11 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
                         try {
                             windowManager?.removeView(view)
                         } catch (e: Exception) {
-                            // 忽略移除失败
                         }
-                        overlayView = null
-                        isOverlayShowing = false
+                        if (overlayView == view) {
+                            overlayView = null
+                            isOverlayShowing = false
+                        }
                     }
                 })
                 .start()
@@ -559,14 +620,31 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
     /**
      * 显示倒计时悬浮窗
      * 位于屏幕右上角，可拖动，不可关闭
+     *
+     * @param lockTitle 倒计时结束后原生侧直接显示锁定弹窗的标题（Flutter 进程死亡时兜底）
+     * @param lockMessage 锁定弹窗消息
+     * @param lockDurationSeconds 锁定弹窗持续秒数
+     * @param lockPackageName 锁定弹窗应用包名
      */
-    private fun showCountdownWidget(totalSeconds: Int, result: MethodChannel.Result) {
+    private fun showCountdownWidget(
+        totalSeconds: Int,
+        result: MethodChannel.Result,
+        lockTitle: String? = null,
+        lockMessage: String? = null,
+        lockDurationSeconds: Int = 0,
+        lockPackageName: String? = null
+    ) {
         if (!hasOverlayPermission(context)) {
             result.error("NO_PERMISSION", "没有悬浮窗权限", null)
             return
         }
 
-        // 如果已经在显示，先隐藏
+        // 存储锁定弹窗兜底参数
+        lockFallbackTitle = lockTitle
+        lockFallbackMessage = lockMessage
+        lockFallbackDurationSeconds = lockDurationSeconds
+        lockFallbackPackageName = lockPackageName
+
         if (isCountdownWidgetShowing) {
             hideCountdownWidget()
         }
@@ -574,10 +652,8 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
         try {
             windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
-            // 创建倒计时悬浮窗视图
             countdownWidgetView = createCountdownWidgetView(totalSeconds)
 
-            // 设置窗口参数 - 小型悬浮窗，可触摸拖动
             countdownWidgetLayoutParams = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
@@ -592,16 +668,14 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
                         WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT
             ).apply {
-                // 初始位置：右上角
                 gravity = Gravity.TOP or Gravity.END
-                x = 32  // 距离右边 32dp 对应的像素
-                y = 100 // 距离顶部 100dp 对应的像素（状态栏下方）
+                x = 32
+                y = 100
             }
 
             windowManager?.addView(countdownWidgetView, countdownWidgetLayoutParams)
             isCountdownWidgetShowing = true
 
-            // 入场动画
             countdownWidgetView?.alpha = 0f
             countdownWidgetView?.animate()
                 ?.alpha(1f)
@@ -703,15 +777,19 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
                 val current = animation.animatedValue as Int
                 textView.text = formatCountdownTime(current)
 
-                // 在3分钟时通知 Flutter
+                // 在3分钟时通知 Flutter（兜底，Flutter 可能已死）
                 if (current <= 180 && current > 120 && !notified3min) {
                     notified3min = true
-                    notifyCountdownAlert("3min")
+                    try {
+                        notifyCountdownAlert("3min")
+                    } catch (_: Exception) { }
                 }
-                // 在2分钟时通知 Flutter
+                // 在2分钟时通知 Flutter（兜底，Flutter 可能已死）
                 if (current <= 120 && current > 60 && !notified2min) {
                     notified2min = true
-                    notifyCountdownAlert("2min")
+                    try {
+                        notifyCountdownAlert("2min")
+                    } catch (_: Exception) { }
                 }
             }
 
@@ -723,7 +801,16 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
                 override fun onAnimationEnd(animation: Animator) {
                     if (countdownCancelled) return
                     textView.text = formatCountdownTime(0)
-                    notifyCountdownEnded()
+
+                    // 原生侧直接显示锁定弹窗（即使 Flutter 进程已死也能生效）
+                    showLockOverlayFromFallback()
+
+                    // 通知 Flutter（兜底，Flutter 可能已死）
+                    try {
+                        notifyCountdownEnded()
+                    } catch (_: Exception) {
+                        // Flutter 引擎不可用，忽略
+                    }
                     removeCountdownWidgetView()
                 }
             })
@@ -732,12 +819,25 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
     }
 
     /**
-     * 格式化倒计时时间
+     * 格式化倒计时时间（MM:SS 格式，用于悬浮窗）
      */
     private fun formatCountdownTime(seconds: Int): String {
         val min = seconds / 60
         val sec = seconds % 60
         return String.format("%02d:%02d", min, sec)
+    }
+
+    /**
+     * 格式化倒计时为可读格式（X分X秒，用于弹窗主区域）
+     */
+    private fun formatCountdownTimeHuman(seconds: Int): String {
+        val minutes = seconds / 60
+        val secs = seconds % 60
+        return if (minutes > 0) {
+            "${minutes}分${secs}秒"
+        } else {
+            "${secs}秒"
+        }
     }
 
     /**
@@ -792,6 +892,10 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
      */
     private fun hideCountdownWidget() {
         countdownCancelled = true
+        lockFallbackTitle = null
+        lockFallbackMessage = null
+        lockFallbackDurationSeconds = 0
+        lockFallbackPackageName = null
         countdownAnimator?.cancel()
         countdownAnimator = null
         removeCountdownWidgetView()
@@ -812,5 +916,35 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
                 // 视图可能已经被系统移除
             }
         }
+    }
+
+    /**
+     * 倒计时结束后，通过兜底参数直接显示锁定弹窗
+     * 解决 MIUI 等 ROM 杀死 Flutter 进程后无法弹出限制使用弹窗的问题
+     */
+    private fun showLockOverlayFromFallback() {
+        val title = lockFallbackTitle ?: return
+        val message = lockFallbackMessage ?: return
+        val duration = lockFallbackDurationSeconds
+        if (duration <= 0) return
+
+        val pkg = lockFallbackPackageName ?: ""
+
+        showOverlay(
+            title = title,
+            message = message,
+            type = "lock",
+            durationSeconds = duration,
+            dismissible = true,
+            packageName = pkg,
+            dismissDelaySeconds = 0,
+            remainingDismissSeconds = 0,
+            launchAppOnDismiss = true,
+            result = object : MethodChannel.Result {
+                override fun success(result: Any?) {}
+                override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) {}
+                override fun notImplemented() {}
+            }
+        )
     }
 }

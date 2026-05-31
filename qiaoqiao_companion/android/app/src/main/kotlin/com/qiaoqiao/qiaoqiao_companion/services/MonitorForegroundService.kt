@@ -311,35 +311,45 @@ class MonitorForegroundService : Service() {
                 if (foregroundApp != null) {
                     val result = nativeRuleChecker!!.checkApp(foregroundApp, now)
 
-                    // 1. 连续使用倒计时（优先于锁定覆盖层）
-                    if (result.needsCountdown) {
-                        // 有倒计时时隐藏锁定覆盖层
+                    // 如果 Flutter 引擎还活着，所有 UI 操作由 Flutter 侧处理
+                    // 原生侧只做 DB 操作（checkApp 内部已做），不做任何 UI 弹窗
+                    if (com.qiaoqiao.qiaoqiao_companion.MainActivity.isFlutterAlive) {
+                        // 清理可能残留的原生覆盖层（防止切换/重启时的残留）
+                        if (nativeOverlayManager?.isCountdownShowing() == true) {
+                            nativeOverlayManager?.hideCountdownOverlay()
+                        }
                         if (lastBlockedPackage != null) {
                             nativeOverlayManager?.hideOverlay()
                             lastBlockedPackage = null
                         }
-                        if (nativeOverlayManager?.isCountdownShowing() != true) {
-                            nativeOverlayManager?.showCountdownOverlay(result.countdownSeconds) {
-                                Log.d(TAG, "Countdown ended - rest should be active")
+                    } else {
+                        // Flutter 死亡 → 原生接管所有 UI 操作
+                        // 1. 连续使用倒计时（优先于锁定覆盖层）
+                        if (result.needsCountdown) {
+                            if (lastBlockedPackage != null) {
+                                nativeOverlayManager?.hideOverlay()
+                                lastBlockedPackage = null
+                            }
+                            if (nativeOverlayManager?.isCountdownShowing() != true) {
+                                nativeOverlayManager?.showCountdownOverlay(result.countdownSeconds) {
+                                    Log.d(TAG, "Countdown ended - rest should be active")
+                                }
+                            }
+                        } else {
+                            if (nativeOverlayManager?.isCountdownShowing() == true) {
+                                nativeOverlayManager?.hideCountdownOverlay()
                             }
                         }
-                    } else {
-                        // 不需要倒计时 → 隐藏倒计时
-                        if (nativeOverlayManager?.isCountdownShowing() == true) {
-                            nativeOverlayManager?.hideCountdownOverlay()
-                        }
-                    }
 
-                    // 2. 锁定/强制休息
-                    if (result.blocked) {
-                        if (!com.qiaoqiao.qiaoqiao_companion.MainActivity.isFlutterAlive || result.ruleType == "forced_rest") {
+                        // 2. 锁定/强制休息
+                        if (result.blocked) {
                             nativeOverlayManager!!.showLockOverlay(result.reason, foregroundApp)
+                            lastBlockedPackage = foregroundApp
+                            Log.d(TAG, "Blocked $foregroundApp: ${result.reason} (${result.ruleType})")
+                        } else if (lastBlockedPackage == foregroundApp) {
+                            nativeOverlayManager!!.hideOverlay()
+                            lastBlockedPackage = null
                         }
-                        lastBlockedPackage = foregroundApp
-                        Log.d(TAG, "Blocked $foregroundApp: ${result.reason} (${result.ruleType})")
-                    } else if (lastBlockedPackage == foregroundApp) {
-                        nativeOverlayManager!!.hideOverlay()
-                        lastBlockedPackage = null
                     }
                 } else {
                     // 无前台应用：隐藏所有覆盖层

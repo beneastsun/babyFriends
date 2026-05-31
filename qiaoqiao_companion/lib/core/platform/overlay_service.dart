@@ -72,6 +72,7 @@ class OverlayService {
     String packageName = '',
     int dismissDelaySeconds = 0,
     int remainingDismissSeconds = 0,
+    bool launchAppOnDismiss = true,
     void Function(String packageName)? onDismissed,
   }) async {
     _onOverlayDismissed = onDismissed;
@@ -87,6 +88,7 @@ class OverlayService {
         'packageName': packageName,
         'dismissDelaySeconds': dismissDelaySeconds,
         'remainingDismissSeconds': remainingDismissSeconds,
+        'launchAppOnDismiss': launchAppOnDismiss,
       },
     );
   }
@@ -107,10 +109,18 @@ class OverlayService {
   /// [totalSeconds] 倒计时总时长（秒）
   /// [onEnded] 倒计时结束回调
   /// [onAlert] 倒计时提醒回调（3min、2min）
+  /// [lockTitle] 倒计时结束后原生侧显示锁定弹窗的标题（Flutter 进程死亡时兜底）
+  /// [lockMessage] 倒计时结束后原生侧显示锁定弹窗的消息
+  /// [lockDurationSeconds] 锁定弹窗的持续秒数（休息时长）
+  /// [lockPackageName] 锁定弹窗的应用包名
   static Future<void> showCountdownWidget({
     required int totalSeconds,
     void Function()? onEnded,
     void Function(String alertType)? onAlert,
+    String? lockTitle,
+    String? lockMessage,
+    int? lockDurationSeconds,
+    String? lockPackageName,
   }) async {
     _onCountdownEnded = onEnded;
     _onCountdownAlert = onAlert;
@@ -119,6 +129,10 @@ class OverlayService {
       'showCountdownWidget',
       {
         'totalSeconds': totalSeconds,
+        if (lockTitle != null) 'lockTitle': lockTitle,
+        if (lockMessage != null) 'lockMessage': lockMessage,
+        if (lockDurationSeconds != null) 'lockDurationSeconds': lockDurationSeconds,
+        if (lockPackageName != null) 'lockPackageName': lockPackageName,
       },
     );
   }
@@ -189,6 +203,7 @@ class ReminderMessage {
   final String packageName;
   final int dismissDelaySeconds;
   final int remainingDismissSeconds;
+  final bool launchAppOnDismiss;
 
   ReminderMessage({
     required this.title,
@@ -199,6 +214,7 @@ class ReminderMessage {
     this.packageName = '',
     this.dismissDelaySeconds = 0,
     this.remainingDismissSeconds = 0,
+    this.launchAppOnDismiss = true,
   });
 
   Future<void> show({void Function(String packageName)? onDismissed}) async {
@@ -211,6 +227,7 @@ class ReminderMessage {
       packageName: packageName,
       dismissDelaySeconds: dismissDelaySeconds,
       remainingDismissSeconds: remainingDismissSeconds,
+      launchAppOnDismiss: launchAppOnDismiss,
       onDismissed: onDismissed,
     );
   }

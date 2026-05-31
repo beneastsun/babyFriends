@@ -243,6 +243,7 @@ class ReminderService {
       dismissDelaySeconds: dismissDelay,
       remainingDismissSeconds: remainingSeconds, // 传递剩余秒数用于显示倒计时
       durationSeconds: durationSeconds ?? 0, // 传递休息/限制时长用于显示倒计时
+      launchAppOnDismiss: !isContinuousUsage, // 连续使用提醒（倒计时弹窗）点击关闭时不打开app
       onDismissed: (pkg) {
         _forbiddenAppTracker.recordDismissal(pkg);
       },

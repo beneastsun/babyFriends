@@ -180,6 +180,11 @@ class ContinuousUsageService {
     final limitSeconds = settings.limitMinutes * 60;
     final remainingSeconds = limitSeconds - session.totalDurationSeconds;
 
+    // 如果剩余时间 <= 0 或正在休息中，不返回任何提醒
+    if (remainingSeconds <= 0 || session.isInRest) {
+      return null;
+    }
+
     // 按从宽松到紧急的顺序检查，确保不会跳过任何级别
     // 5分钟警告 - 必须先检查
     if (remainingSeconds <= 5 * 60 && !session.alertsShown.contains('5min')) {
@@ -237,6 +242,16 @@ class ContinuousUsageService {
   Future<int?> getRemainingRestSeconds() async {
     final session = await _sessionDao.getRestingSession(_today());
     return session?.remainingRestSeconds;
+  }
+
+  /// 检查休息是否已结束，若已结束则停用会话让新会话重新开始
+  Future<void> checkRestEnded() async {
+    final session = await _sessionDao.getActiveSession(_today());
+    if (session == null) return;
+    if (session.restEndTime != null && !session.isInRest) {
+      await _sessionDao.deactivate(session.id!);
+      print('[ContinuousUsage] Rest ended, session deactivated');
+    }
   }
 
   /// 获取当前活跃会话
