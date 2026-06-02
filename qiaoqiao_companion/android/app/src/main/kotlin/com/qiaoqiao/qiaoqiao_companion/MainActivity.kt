@@ -65,6 +65,10 @@ class MainActivity : FlutterActivity() {
         registerReceiver(screenReceiver, filter)
     }
 
+    override fun onStart() {
+        super.onStart()
+    }
+
     override fun onResume() {
         super.onResume()
         // 延迟启动服务：等 Activity 完全进入前台状态后再启动

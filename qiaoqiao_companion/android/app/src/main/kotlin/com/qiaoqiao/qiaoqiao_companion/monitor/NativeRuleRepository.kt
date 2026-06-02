@@ -80,6 +80,10 @@ class NativeRuleRepository(private val context: Context) {
         val restEndTime: Long? = null,
         val alertsShown: Set<String> = emptySet(),
         val isActive: Boolean = true,
+        /** 倒计时开始时间戳（毫秒）。由 Flutter 侧在显示倒计时悬浮窗时写入。 */
+        val countdownStartedAt: Long? = null,
+        /** 倒计时总秒数（首次显示时的剩余秒数）。由 Flutter 侧在显示倒计时悬浮窗时写入。 */
+        val countdownTotalSeconds: Long? = null,
         val createdAt: Long = System.currentTimeMillis(),
         val updatedAt: Long = System.currentTimeMillis()
     )
@@ -216,6 +220,16 @@ class NativeRuleRepository(private val context: Context) {
                 put("last_activity_time", session.lastActivityTime ?: now)
                 put("alerts_shown", session.alertsShown.joinToString(","))
                 put("is_active", if (session.isActive) 1 else 0)
+                if (session.countdownStartedAt != null) {
+                    put("countdown_started_at", session.countdownStartedAt)
+                } else {
+                    putNull("countdown_started_at")
+                }
+                if (session.countdownTotalSeconds != null) {
+                    put("countdown_total_seconds", session.countdownTotalSeconds)
+                } else {
+                    putNull("countdown_total_seconds")
+                }
                 put("created_at", session.createdAt)
                 put("updated_at", now)
             }
@@ -241,9 +255,21 @@ class NativeRuleRepository(private val context: Context) {
                 put("last_activity_time", session.lastActivityTime ?: now)
                 if (session.restEndTime != null) {
                     put("rest_end_time", session.restEndTime)
+                } else {
+                    putNull("rest_end_time")
                 }
                 put("alerts_shown", session.alertsShown.joinToString(","))
                 put("is_active", if (session.isActive) 1 else 0)
+                if (session.countdownStartedAt != null) {
+                    put("countdown_started_at", session.countdownStartedAt)
+                } else {
+                    putNull("countdown_started_at")
+                }
+                if (session.countdownTotalSeconds != null) {
+                    put("countdown_total_seconds", session.countdownTotalSeconds)
+                } else {
+                    putNull("countdown_total_seconds")
+                }
                 put("updated_at", now)
             }
             val rows = database.update(
@@ -252,7 +278,7 @@ class NativeRuleRepository(private val context: Context) {
                 "id = ?",
                 arrayOf(session.id.toString())
             )
-            Log.d(TAG, "Updated session: id=${session.id}, rows=$rows, duration=${session.totalDurationSeconds}s")
+            Log.d(TAG, "Updated session: id=${session.id}, rows=$rows, duration=${session.totalDurationSeconds}s, countdownStartedAt=${session.countdownStartedAt}, countdownTotalSeconds=${session.countdownTotalSeconds}")
             rows > 0
         } catch (e: Exception) {
             Log.e(TAG, "Failed to update session", e)
@@ -295,6 +321,16 @@ class NativeRuleRepository(private val context: Context) {
             cursor.getString(cursor.getColumnIndexOrThrow("alerts_shown"))
         }
 
+        // 对 v5 新增列使用 getColumnIndex（未升级的旧 DB 返回 -1），避免直接 getColumnIndexOrThrow 崩溃
+        val countdownStartedAtIdx = cursor.getColumnIndex("countdown_started_at")
+        val countdownTotalSecondsIdx = cursor.getColumnIndex("countdown_total_seconds")
+        val countdownStartedAt: Long? =
+            if (countdownStartedAtIdx < 0 || cursor.isNull(countdownStartedAtIdx)) null
+            else cursor.getLong(countdownStartedAtIdx)
+        val countdownTotalSeconds: Long? =
+            if (countdownTotalSecondsIdx < 0 || cursor.isNull(countdownTotalSecondsIdx)) null
+            else cursor.getLong(countdownTotalSecondsIdx)
+
         return ContinuousSession(
             id = cursor.getLong(cursor.getColumnIndexOrThrow("id")),
             sessionDate = cursor.getString(cursor.getColumnIndexOrThrow("session_date")),
@@ -306,6 +342,8 @@ class NativeRuleRepository(private val context: Context) {
                 else cursor.getLong(cursor.getColumnIndexOrThrow("rest_end_time")),
             alertsShown = if (alertsStr.isEmpty()) emptySet() else alertsStr.split(",").filter { it.isNotEmpty() }.toSet(),
             isActive = cursor.getInt(cursor.getColumnIndexOrThrow("is_active")) == 1,
+            countdownStartedAt = countdownStartedAt,
+            countdownTotalSeconds = countdownTotalSeconds,
             createdAt = cursor.getLong(cursor.getColumnIndexOrThrow("created_at")),
             updatedAt = cursor.getLong(cursor.getColumnIndexOrThrow("updated_at"))
         )

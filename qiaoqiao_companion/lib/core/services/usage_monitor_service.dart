@@ -6,6 +6,7 @@ import 'package:qiaoqiao_companion/core/constants/database_constants.dart';
 import 'package:qiaoqiao_companion/core/platform/overlay_service.dart';
 import 'package:qiaoqiao_companion/core/platform/usage_stats_service.dart';
 import 'package:qiaoqiao_companion/core/services/continuous_usage_service.dart';
+import 'package:qiaoqiao_companion/core/services/overlay_state_manager.dart';
 import 'package:qiaoqiao_companion/core/services/reminder_service.dart';
 import 'package:qiaoqiao_companion/core/services/rule_checker_service.dart';
 import 'package:qiaoqiao_companion/shared/models/models.dart';
@@ -28,6 +29,7 @@ class UsageMonitorService {
   final ReminderService _reminderService;
   final RuleCheckerService _ruleCheckerService;
   final ContinuousUsageService _continuousUsageService;
+  final OverlayStateManager _overlayManager;
   final AppUsageDao _appUsageDao;
   final DailyStatsDao _dailyStatsDao;
   final RuleDao _ruleDao;
@@ -38,6 +40,7 @@ class UsageMonitorService {
   Timer? _monitorTimer;
   String? _lastForegroundApp;
   bool _isMonitoring = false;
+  bool _syncInProgress = false;
 
   /// 跟踪是否已触发锁定状态（用于判断是否需要显示锁定界面）
   bool _totalTimeLocked = false;
@@ -67,6 +70,7 @@ class UsageMonitorService {
     this._reminderService,
     this._ruleCheckerService,
     this._continuousUsageService,
+    this._overlayManager,
     this._ref,
   )   : _appUsageDao = AppUsageDao(_database),
         _dailyStatsDao = DailyStatsDao(_database),
@@ -134,7 +138,7 @@ class UsageMonitorService {
         ? elapsedSeconds
         : 0;
 
-    // 检查是否处于强制休息中（休息期间不累加时间，也无需跟踪新应用）
+    // 检查是否处于强制休息中（休息期间不累加时间，但仍允许显示 widget）
     final status = await _continuousUsageService.getStatus();
     final inRest = status == ContinuousUsageStatus.inRest;
 
@@ -144,8 +148,11 @@ class UsageMonitorService {
       print('[UsageMonitor] Accumulated ${validElapsed}s for $_currentSessionApp');
     }
 
-    // Step 2: 判断当前应用是否需要跟踪（休息中跳过）
-    final shouldTrackCurrent = !inRest && currentApp != null && monitoredApps.isMonitored(currentApp);
+    // Step 2: 判断当前应用是否需要跟踪
+    // 关键：去掉 inRest 限制 —— 休息期间也要让 widget 显示（显示休息倒计时），
+    // 否则用户在休息期间划掉进程后重新打开受限 app 时，widget 永远不会出现。
+    // 累加时间的保护在 Step 1 中，与 widget 显示解耦。
+    final shouldTrackCurrent = currentApp != null && monitoredApps.isMonitored(currentApp);
 
     // Step 3: 处理会话状态变化
     if (shouldTrackCurrent) {
@@ -157,50 +164,77 @@ class UsageMonitorService {
       }
       _currentSessionApp = currentApp;
       _isSessionActive = true;
-      
-      // 显示秒表悬浮窗（计时器模式）
-      await _showStopwatchWidget();
-      
+
+      // 显示秒表悬浮窗（按 inRest 切换显示模式）
+      await _showStopwatchWidget(inRest: inRest);
+
       // 重置停止时间
       _lastStopTime = null;
     } else {
       // 离开监控应用（息屏或切换到非监控app）
+      // 立即隐藏倒计时 widget（用户不在使用监控 app 时不应显示悬浮窗）
+      if (_countdownWidgetShowing || _stopwatchWidgetShowing) {
+        await _hideStopwatchWidget();
+        print('[UsageMonitor] 离开监控应用，立即隐藏倒计时 widget');
+      }
+
       // 关键：不重置 _currentSessionApp，保留它用于5分钟内恢复
       // 只设置 _isSessionActive = false，停止累加时间
       if (_isSessionActive) {
         print('[UsageMonitor] Session paused (not tracking), currentApp: $currentApp');
-        // 记录停止时间
         _lastStopTime = now;
       }
       _isSessionActive = false;
-      // 不设置 _currentSessionApp = null！
-      
-      // 检查是否需要隐藏计时器
+
+      // 检查是否需要因长时间休息而重置会话
       await _checkHideStopwatchAfterRest(now, settings);
     }
   }
 
   /// 显示秒表悬浮窗（倒计时模式）
-  Future<void> _showStopwatchWidget() async {
+  ///
+  /// [inRest] 为 true 时显示「休息倒计时」（距休息结束），不触发二次锁定；
+  /// 为 false 时显示「使用倒计时」（距使用限制），结束后触发强制休息。
+  Future<void> _showStopwatchWidget({bool inRest = false}) async {
     // 如果倒计时已经在显示或强制休息处理中，不显示新的
     if (_countdownWidgetShowing || _stopwatchWidgetShowing || _forceRestInProgress) {
-      return;
-    }
-
-    // 如果强制休息弹窗还在显示，不显示新的倒计时（等用户关闭弹窗后再开始）
-    if (await OverlayService.isOverlayShowing()) {
-      print('[UsageMonitor] 覆盖层仍在显示，跳过秒表悬浮窗');
+      print('[Diag] [W] skip: cd=$_countdownWidgetShowing sw=$_stopwatchWidgetShowing fr=$_forceRestInProgress');
       return;
     }
 
     final settings = _ref.read(continuousUsageSettingsProvider);
     if (!settings.enabled) {
-      // 未启用连续使用限制，不显示悬浮窗
+      print('[Diag] [W] skip: settings.enabled=false');
+      return;
+    }
+
+    // 只有当前台 app 是被监控 app 时才显示 widget
+    final currentApp = await UsageStatsService.getCurrentForegroundApp();
+    final monitoredApps = _ref.read(monitoredAppsProvider);
+    final isMonitored = currentApp != null && monitoredApps.isMonitored(currentApp);
+    if (!isMonitored) {
+      print('[Diag] [W] skip: currentApp=$currentApp, monitored=${monitoredApps.monitoredPackageNames.length} apps');
+      return;
+    }
+
+    if (inRest) {
+      // 休息期间：显示休息倒计时，不创建/更新 session（避免污染累加时长）
+      final restRemaining = await _continuousUsageService.getRemainingRestSeconds();
+      if (restRemaining == null || restRemaining <= 0) {
+        print('[Diag] [W] skip rest: restRemaining=$restRemaining');
+        return;
+      }
+      print('[UsageMonitor] inRest: 显示休息倒计时 ${restRemaining}s');
+      await _showCountdownFromRemaining(
+        remainingSeconds: restRemaining,
+        isRestCountdown: true,
+      );
       return;
     }
 
     final session = await _continuousUsageService.getActiveSession();
     if (session == null) {
+      print('[Diag] [W] skip: session=null for $currentApp');
       return;
     }
 
@@ -209,24 +243,27 @@ class UsageMonitorService {
     final remainingSeconds = limitSeconds - session.totalDurationSeconds;
 
     if (remainingSeconds <= 0) {
-      // 已经超过限制，不显示
+      print('[Diag] [W] skip: remaining=${remainingSeconds}s <= 0 (total=${session.totalDurationSeconds}s)');
       return;
     }
-    
+
     // 始终显示倒计时，从剩余时间开始
-    await _showCountdownFromRemaining(remainingSeconds.toInt());
+    await _showCountdownFromRemaining(
+      remainingSeconds: remainingSeconds.toInt(),
+      isRestCountdown: false,
+    );
   }
 
   /// 从剩余时间开始显示倒计时
-  Future<void> _showCountdownFromRemaining(int remainingSeconds) async {
+  ///
+  /// [isRestCountdown] 为 true 时显示休息倒计时（不锁定、不持久化到 session 的倒计时字段）；
+  /// 为 false 时显示使用倒计时（结束后触发强制休息，并持久化到 session 供原生侧按挂钟恢复）。
+  Future<void> _showCountdownFromRemaining({
+    required int remainingSeconds,
+    required bool isRestCountdown,
+  }) async {
     if (_countdownWidgetShowing || _stopwatchWidgetShowing) {
       print('[UsageMonitor] _showCountdownFromRemaining - widget already showing, skip');
-      return;
-    }
-
-    // 如果强制休息弹窗还在显示，不显示新的倒计时
-    if (await OverlayService.isOverlayShowing()) {
-      print('[UsageMonitor] 覆盖层仍在显示，跳过 _showCountdownFromRemaining');
       return;
     }
 
@@ -235,25 +272,59 @@ class UsageMonitorService {
     _countdownTriggerApp = _currentSessionApp;
     final settings = _ref.read(continuousUsageSettingsProvider);
 
-    print('[UsageMonitor] _showCountdownFromRemaining - showing countdown from: ${remainingSeconds}s (${remainingSeconds ~/ 60}分钟)');
+    final String lockTitle;
+    final String lockMessage;
+    final int lockDurationSeconds;
+    final String? lockPackageName;
 
-    await OverlayService.showCountdownWidget(
-      totalSeconds: remainingSeconds,
-      onEnded: () {
-        unawaited(_handleCountdownEnded());
-      },
-      onAlert: (alertType) {
-        print('[UsageMonitor] Countdown alert: $alertType');
-        final targetApp = _countdownTriggerApp ?? _currentSessionApp;
-        if (targetApp != null) {
-          _handleCountdownAlert(targetApp, alertType);
-        }
-      },
-      lockTitle: '时间结束',
-      lockMessage: '连续使用时间已达限制',
-      lockDurationSeconds: settings.restSeconds,
-      lockPackageName: _countdownTriggerApp ?? _currentSessionApp,
-    );
+    if (isRestCountdown) {
+      lockTitle = '';
+      lockMessage = '';
+      lockDurationSeconds = 0;
+      lockPackageName = null;
+    } else {
+      lockTitle = '时间结束';
+      lockMessage = '连续使用时间已达限制';
+      lockDurationSeconds = settings.restSeconds;
+      lockPackageName = _countdownTriggerApp ?? _currentSessionApp;
+    }
+
+    print('[UsageMonitor] _showCountdownFromRemaining - showing countdown from: ${remainingSeconds}s '
+        '(isRestCountdown=$isRestCountdown)');
+
+    print('[Diag] [C] 准备显示 widget: ${remainingSeconds}s, isRest=$isRestCountdown');
+
+    try {
+      await OverlayService.showCountdownWidget(
+        totalSeconds: remainingSeconds,
+        onEnded: () {
+          unawaited(_handleCountdownEnded());
+        },
+        onAlert: (alertType) {
+          if (isRestCountdown) return; // 休息期间不触发 3min/2min 告警
+          print('[UsageMonitor] Countdown alert: $alertType');
+          final targetApp = _countdownTriggerApp ?? _currentSessionApp;
+          if (targetApp != null) {
+            _handleCountdownAlert(targetApp, alertType);
+          }
+        },
+        lockTitle: lockTitle,
+        lockMessage: lockMessage,
+        lockDurationSeconds: lockDurationSeconds,
+        lockPackageName: lockPackageName,
+      );
+      print('[Diag] [C] widget 调用成功, 应该在屏幕上看到');
+    } catch (e, st) {
+      print('[Diag] [C] widget 调用失败: $e');
+      print('[UsageMonitor] showCountdownWidget failed: $e\n$st');
+      _countdownWidgetShowing = false;
+      _stopwatchWidgetShowing = false;
+    }
+
+    // 仅使用倒计时需要持久化状态，让原生侧在进程被杀后按挂钟恢复
+    if (!isRestCountdown) {
+      await _persistCountdownState(remainingSeconds);
+    }
   }
 
   Future<void> _handleCountdownEnded([String? fallbackApp]) async {
@@ -268,7 +339,15 @@ class UsageMonitorService {
       _stopwatchWidgetShowing = false;
       _countdownWidgetShowing = false;
       _countdownTriggerApp = null;
+      _overlayManager.onCountdownEnded();
       await OverlayService.hideCountdownWidget();
+      await _clearCountdownState();
+
+      // 去重：如果原生兜底路径已经显示了锁定弹窗，不再重复创建
+      if (await OverlayService.isOverlayShowing()) {
+        print('[UsageMonitor] Native fallback already showed lock overlay, skip Flutter path');
+        return;
+      }
 
       if (targetApp != null) {
         await _triggerForcedRestAfterCountdown(targetApp);
@@ -311,6 +390,7 @@ class UsageMonitorService {
       _countdownWidgetShowing = false;
       _countdownTriggerApp = null;
       _countdownEnding = false;
+      await _clearCountdownState();
     }
   }
 
@@ -321,6 +401,40 @@ class UsageMonitorService {
       // 停用当前会话
       await _continuousUsageService.restoreSession(); // 这会停用超过阈值的会话
       print('[UsageMonitor] Continuous session reset after rest period');
+    }
+  }
+
+  /// 把当前倒计时状态写入活跃会话（countdown_started_at / countdown_total_seconds）。
+  /// 必须在 OverlayService.showCountdownWidget 之后调用。
+  /// 原生侧在服务重启后会读取这两列，按挂钟恢复倒计时。
+  Future<void> _persistCountdownState(int remainingSeconds) async {
+    try {
+      final session = await _continuousUsageService.getActiveSession();
+      if (session == null) return;
+      await _continuousUsageService.updateSession(session.copyWith(
+        countdownStartedAt: DateTime.now().millisecondsSinceEpoch,
+        countdownTotalSeconds: remainingSeconds,
+        updatedAt: DateTime.now(),
+      ));
+    } catch (e, st) {
+      print('[UsageMonitor] _persistCountdownState failed: $e\n$st');
+    }
+  }
+
+  /// 清空活跃会话的倒计时字段（倒计时结束/隐藏/重置时调用）。
+  Future<void> _clearCountdownState() async {
+    try {
+      final session = await _continuousUsageService.getActiveSession();
+      if (session == null) return;
+      if (session.countdownStartedAt == null && session.countdownTotalSeconds == null) {
+        return;
+      }
+      await _continuousUsageService.updateSession(session.copyWith(
+        clearCountdown: true,
+        updatedAt: DateTime.now(),
+      ));
+    } catch (e, st) {
+      print('[UsageMonitor] _clearCountdownState failed: $e\n$st');
     }
   }
 
@@ -353,11 +467,16 @@ class UsageMonitorService {
       lockPackageName: lockApp,
     );
 
+    // 持久化倒计时状态，让原生侧在进程被杀后能按挂钟恢复
+    await _persistCountdownState(remainingSeconds);
+
     print('[UsageMonitor] Switched to countdown mode, remaining: ${remainingSeconds}s');
   }
 
   /// 同步系统统计数据并检查规则
   Future<void> _syncAndCheck() async {
+    if (_syncInProgress) return;
+    _syncInProgress = true;
     try {
       final now = DateTime.now();
       final today = DailyStats.formatDate(now);
@@ -416,6 +535,8 @@ class UsageMonitorService {
     } catch (e, stackTrace) {
       print('[UsageMonitor] Error in _syncAndCheck: $e');
       print('[UsageMonitor] Stack trace: $stackTrace');
+    } finally {
+      _syncInProgress = false;
     }
   }
 
@@ -785,16 +906,17 @@ class UsageMonitorService {
     await _continuousUsageService.markAlertShown(alertType);
 
     if (alertType == '5min') {
-      final message = '连续使用即将达到限制，还剩 5 分钟，记得休息哦！';
-      final ruleType = 'continuous_usage_5min';
-      final lockReason = '连续使用时间已达限制';
       final settings = _ref.read(continuousUsageSettingsProvider);
+      final session = await _continuousUsageService.getActiveSession();
+      final limitSeconds = settings.limitMinutes * 60;
+      final currentRemaining = limitSeconds - (session?.totalDurationSeconds ?? 0);
+      final countdownSeconds = currentRemaining.clamp(0, 5 * 60).toInt();
 
       _countdownWidgetShowing = true;
       _stopwatchWidgetShowing = false;
       _countdownTriggerApp = currentApp;
       await OverlayService.showCountdownWidget(
-        totalSeconds: 5 * 60,
+        totalSeconds: countdownSeconds,
         onEnded: () {
           print('[UsageMonitor] 倒计时悬浮窗结束，触发强制休息');
           unawaited(_handleCountdownEnded(currentApp));
@@ -803,18 +925,15 @@ class UsageMonitorService {
           _handleCountdownAlert(currentApp, alertType);
         },
         lockTitle: '时间结束',
-        lockMessage: lockReason,
+        lockMessage: '连续使用时间已达限制',
         lockDurationSeconds: settings.restSeconds,
         lockPackageName: currentApp,
       );
 
-      await _reminderService.checkAndShowForbiddenReminder(
-        packageName: currentApp,
-        reason: message,
-        ruleType: ruleType,
-      );
+      // 持久化倒计时状态，让原生侧在进程被杀后能按挂钟恢复
+      await _persistCountdownState(countdownSeconds);
 
-      print('[UsageMonitor] 已显示倒计时悬浮窗，5分钟');
+      print('[UsageMonitor] 已显示倒计时悬浮窗，${countdownSeconds ~/ 60}分钟');
     }
   }
 
@@ -890,6 +1009,7 @@ class UsageMonitorService {
       _countdownEnding = false;
       _stopwatchWidgetShowing = false;
       _countdownTriggerApp = null;
+      await _clearCountdownState();
       print('[UsageMonitor] 隐藏倒计时悬浮窗');
 
       _forceRestInProgress = true;
@@ -926,11 +1046,13 @@ final usageMonitorServiceProvider = Provider<UsageMonitorService>((ref) {
   final reminderService = ref.watch(reminderServiceProvider);
   final ruleCheckerService = ref.watch(ruleCheckerServiceProvider);
   final continuousUsageService = ref.watch(continuousUsageServiceProvider);
+  final overlayManager = ref.watch(overlayStateManagerProvider);
   return UsageMonitorService(
     db,
     reminderService,
     ruleCheckerService,
     continuousUsageService,
+    overlayManager,
     ref,
   );
 });

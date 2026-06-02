@@ -131,6 +131,11 @@ class NativeRuleChecker(private val repository: NativeRuleRepository) {
      * 与 checkApp 的其它检查（时间段/总时间）使用相同的 stateless DB 读取模式，
      * 每次从 [NativeRuleRepository] 读取连续使用设置和活跃会话，计算剩余时间并决策。
      *
+     * 主路径：如果 Flutter 侧已经写入了 countdown_started_at / countdown_total_seconds，
+     * 则按挂钟算术恢复剩余时间，避免 coerceIn(1,30) 累加在服务重启间隔内严重失准的问题。
+     *
+     * 兜底路径：若两列为空（纯原生追踪场景），使用原增量累加逻辑。
+     *
      * @return 需要倒计时的 CheckResult，或 null（无需操作）
      */
     private fun checkContinuousCountdown(packageName: String, now: Long): CheckResult? {
@@ -143,6 +148,59 @@ class NativeRuleChecker(private val repository: NativeRuleRepository) {
         if (restRemaining > 0) return null // 强制休息由 checkApp 开头的 rest 分支处理
 
         var session = repository.getActiveContinuousSession() ?: return null
+
+        // ===== 预检：会话有已过期的 restEndTime → 休息已结束 =====
+        // Flutter 侧的 checkRestEnded() 可能在异步提交中，原生侧先读取到旧数据。
+        // 此时不应使用旧倒计时数据触发新的强制休息，而是清理倒计时字段并返回 null，
+        // 让 Flutter 侧处理会话解激活。
+        if (session.restEndTime != null && session.restEndTime!! <= now) {
+            if (session.countdownStartedAt != null || session.countdownTotalSeconds != null) {
+                repository.updateContinuousSession(session.copy(
+                    countdownStartedAt = null,
+                    countdownTotalSeconds = null,
+                    updatedAt = now
+                ))
+                Log.d(TAG, "Cleared stale countdown state after rest ended")
+            }
+            return null
+        }
+
+        // ===== 主路径：根据持久化的倒计时状态按挂钟恢复 =====
+        val startedAt = session.countdownStartedAt
+        val totalSec = session.countdownTotalSeconds
+        if (startedAt != null && totalSec != null) {
+            val endMs = startedAt + totalSec * 1000L
+            val remaining = ((endMs - now) / 1000L).coerceAtLeast(0L)
+
+            if (remaining <= 0) {
+                // 倒计时已过期 → 清空倒计时字段并触发强制休息
+                val restEndTime = now + settings.restSeconds * 1000L
+                repository.updateContinuousSession(session.copy(
+                    totalDurationSeconds = settings.limitSeconds.coerceAtLeast(session.totalDurationSeconds),
+                    restEndTime = restEndTime,
+                    countdownStartedAt = null,
+                    countdownTotalSeconds = null,
+                    updatedAt = now
+                ))
+                Log.d(TAG, "Countdown expired (wall-clock), forced rest until $restEndTime")
+                return CheckResult(
+                    true,
+                    "正在休息中，还需要 ${formatRemainingTime(settings.restSeconds)}",
+                    "forced_rest"
+                )
+            }
+
+            Log.d(TAG, "Countdown resume (wall-clock): remaining=${remaining}s (startedAt=$startedAt, total=$totalSec)")
+            return CheckResult(false, "", "continuous_countdown", remaining)
+        }
+
+        // ===== 兜底路径：原增量累加逻辑 =====
+        // Flutter 存活时不走此路径（避免双写争用，仅当进程重启后 Flutter 引擎死亡时启用）
+        if (com.qiaoqiao.qiaoqiao_companion.MainActivity.isFlutterAlive) {
+            Log.d(TAG, "Fallback skip: Flutter is alive")
+            return null
+        }
+
         val lastActivity = session.lastActivityTime ?: return null
 
         // 累计时间
@@ -176,7 +234,7 @@ class NativeRuleChecker(private val repository: NativeRuleRepository) {
             return CheckResult(true, "正在休息中，还需要 ${formatRemainingTime(settings.restSeconds)}", "forced_rest")
         }
 
-        if (remainingSeconds <= 300) {
+        if (remainingSeconds <= 300 && remainingSeconds < settings.limitSeconds) {
             return CheckResult(false, "", "continuous_countdown", remainingSeconds)
         }
 

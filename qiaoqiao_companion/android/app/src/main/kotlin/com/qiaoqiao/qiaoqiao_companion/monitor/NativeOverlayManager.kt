@@ -1,8 +1,5 @@
 package com.qiaoqiao.qiaoqiao_companion.monitor
 
-import android.animation.Animator
-import android.animation.AnimatorListenerAdapter
-import android.animation.ValueAnimator
 import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
@@ -17,7 +14,6 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
-import android.view.animation.LinearInterpolator
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -43,16 +39,26 @@ class NativeOverlayManager(private val context: Context) {
     // 倒计时悬浮窗
     private var countdownWidgetView: View? = null
     private var isCountdownShowing = false
-    private var countdownAnimator: ValueAnimator? = null
+    private var countdownRunnable: Runnable? = null
+    private var countdownWallClockStartMs: Long = 0L
+    private var countdownTotalMs: Long = 0L
     private var countdownTextTime: TextView? = null
     private var countdownLayoutParams: WindowManager.LayoutParams? = null
     private var countdownCancelled = false
     private var onCountdownEnded: Runnable? = null
 
+    // 阈值提醒回调（3分钟/2分钟）
+    private var countdownAlert3min: Runnable? = null
+    private var countdownAlert2min: Runnable? = null
+    private var countdownAlert3minFired = false
+    private var countdownAlert2minFired = false
+
     // 覆盖层内倒计时（用于锁屏视图上的休息倒计时）
     private var backButton: TextView? = null
     private var lockCountdownText: TextView? = null
-    private var lockCountdownAnimator: ValueAnimator? = null
+    private var lockCountdownRunnable: Runnable? = null
+    private var lockCountdownWallClockStartMs: Long = 0L
+    private var lockCountdownTotalMs: Long = 0L
     private var lockCountdownCancelled = false
     private var isLockOverlayWithCountdown = false
 
@@ -485,12 +491,34 @@ class NativeOverlayManager(private val context: Context) {
     }
 
     /**
+     * 显示倒计时悬浮窗并挂载 3/2 分钟阈值提醒回调。
+     *
+     * 阈值检测已内置于 [startCountdownAnimation] 的挂钟 ticker 中，
+     * 此处只需在调用 [showCountdownOverlay] 前设置回调字段。
+     *
+     * @param totalSeconds 倒计时剩余总秒数
+     * @param onAlert3min 跨过 3 分钟阈值时触发（一次性）
+     * @param onAlert2min 跨过 2 分钟阈值时触发（一次性）
+     * @param onEnded 倒计时归零时触发
+     */
+    fun showCountdownOverlayWithAlerts(
+        totalSeconds: Long,
+        onAlert3min: Runnable? = null,
+        onAlert2min: Runnable? = null,
+        onEnded: Runnable? = null
+    ) {
+        countdownAlert3min = onAlert3min
+        countdownAlert2min = onAlert2min
+        showCountdownOverlay(totalSeconds, onEnded)
+    }
+
+    /**
      * 更新倒计时剩余时间
      * 每次 monitorRunnable 检查时调用，重新校准倒计时
      */
     fun updateCountdownTime(remainingSeconds: Long) {
         if (!isCountdownShowing) return
-        countdownAnimator?.cancel()
+        countdownRunnable?.let { handler.removeCallbacks(it) }
         countdownCancelled = true
         startCountdownAnimation(remainingSeconds)
     }
@@ -500,8 +528,10 @@ class NativeOverlayManager(private val context: Context) {
      */
     fun hideCountdownOverlay() {
         countdownCancelled = true
-        countdownAnimator?.cancel()
-        countdownAnimator = null
+        countdownRunnable?.let { handler.removeCallbacks(it) }
+        countdownRunnable = null
+        countdownAlert3min = null
+        countdownAlert2min = null
 
         val view = countdownWidgetView
         countdownWidgetView = null
@@ -579,35 +609,53 @@ class NativeOverlayManager(private val context: Context) {
      */
     private fun startCountdownAnimation(totalSeconds: Long) {
         countdownCancelled = false
+        countdownAlert3minFired = false
+        countdownAlert2minFired = false
         val startSeconds = totalSeconds.coerceAtLeast(0)
 
         countdownTextTime?.let { textView ->
             textView.text = formatCountdownTime(startSeconds)
         }
 
-        countdownAnimator = ValueAnimator.ofInt(startSeconds.toInt(), 0).apply {
-            duration = startSeconds * 1000L
-            interpolator = LinearInterpolator()
+        countdownWallClockStartMs = System.currentTimeMillis()
+        countdownTotalMs = startSeconds * 1000L
 
-            addUpdateListener { animation ->
-                if (countdownCancelled) return@addUpdateListener
-                val current = animation.animatedValue as Int
-                countdownTextTime?.text = formatCountdownTime(current.coerceAtLeast(0).toLong())
+        countdownRunnable?.let { handler.removeCallbacks(it) }
+        val ticker = object : Runnable {
+            override fun run() {
+                if (countdownCancelled) return
+                val elapsed = System.currentTimeMillis() - countdownWallClockStartMs
+                val remainingMs = (countdownTotalMs - elapsed).coerceAtLeast(0)
+                val remainingSec = (remainingMs / 1000).toInt()
+
+                countdownTextTime?.text = formatCountdownTime(remainingSec.toLong())
+
+                if (!countdownAlert3minFired && remainingSec <= 180 && remainingSec > 120) {
+                    countdownAlert3minFired = true
+                    try { countdownAlert3min?.run() } catch (e: Exception) {
+                        Log.e(TAG, "onAlert3min failed", e)
+                    }
+                }
+                if (!countdownAlert2minFired && remainingSec <= 120 && remainingSec > 60) {
+                    countdownAlert2minFired = true
+                    try { countdownAlert2min?.run() } catch (e: Exception) {
+                        Log.e(TAG, "onAlert2min failed", e)
+                    }
+                }
+
+                if (remainingSec > 0) {
+                    val msUntilNextSec = (1000 - (remainingMs % 1000)).coerceAtLeast(100)
+                    handler.postDelayed(this, msUntilNextSec)
+                } else {
+                    if (!countdownCancelled) {
+                        onCountdownEnded?.run()
+                        removeCountdownView()
+                    }
+                }
             }
-
-            addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationCancel(animation: Animator) {
-                    countdownCancelled = true
-                }
-
-                override fun onAnimationEnd(animation: Animator) {
-                    if (countdownCancelled) return
-                    onCountdownEnded?.run()
-                    removeCountdownView()
-                }
-            })
         }
-        countdownAnimator?.start()
+        countdownRunnable = ticker
+        handler.post(ticker)
     }
 
     /**
@@ -619,37 +667,39 @@ class NativeOverlayManager(private val context: Context) {
 
         lockCountdownText?.text = formatCountdownTime(startSec)
 
-        lockCountdownAnimator = ValueAnimator.ofInt(startSec.toInt(), 0).apply {
-            duration = startSec * 1000L
-            interpolator = LinearInterpolator()
+        lockCountdownWallClockStartMs = System.currentTimeMillis()
+        lockCountdownTotalMs = startSec * 1000L
 
-            addUpdateListener { animation ->
-                if (lockCountdownCancelled) return@addUpdateListener
-                val current = animation.animatedValue as Int
-                lockCountdownText?.text = formatCountdownTime(current.coerceAtLeast(0).toLong())
-            }
+        lockCountdownRunnable?.let { handler.removeCallbacks(it) }
+        val ticker = object : Runnable {
+            override fun run() {
+                if (lockCountdownCancelled) return
+                val elapsed = System.currentTimeMillis() - lockCountdownWallClockStartMs
+                val remainingMs = (lockCountdownTotalMs - elapsed).coerceAtLeast(0)
+                val remainingSec = (remainingMs / 1000).toInt()
 
-            addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationCancel(animation: Animator) {
-                    lockCountdownCancelled = true
-                }
+                lockCountdownText?.text = formatCountdownTime(remainingSec.toLong())
 
-                override fun onAnimationEnd(animation: Animator) {
-                    if (lockCountdownCancelled) return
-                    lockCountdownText?.text = "0秒"
-                    // 启用返回按钮
-                    backButton?.let { btn ->
-                        btn.isEnabled = true
-                        btn.background = android.graphics.drawable.GradientDrawable().apply {
-                            setColor(0xFFFF6B6B.toInt())
-                            cornerRadius = 28f
+                if (remainingSec > 0) {
+                    val msUntilNextSec = (1000 - (remainingMs % 1000)).coerceAtLeast(100)
+                    handler.postDelayed(this, msUntilNextSec)
+                } else {
+                    if (!lockCountdownCancelled) {
+                        lockCountdownText?.text = "0秒"
+                        backButton?.let { btn ->
+                            btn.isEnabled = true
+                            btn.background = android.graphics.drawable.GradientDrawable().apply {
+                                setColor(0xFFFF6B6B.toInt())
+                                cornerRadius = 28f
+                            }
                         }
+                        isLockOverlayWithCountdown = false
                     }
-                    isLockOverlayWithCountdown = false
                 }
-            })
+            }
         }
-        lockCountdownAnimator?.start()
+        lockCountdownRunnable = ticker
+        handler.post(ticker)
     }
 
     /**
@@ -657,8 +707,8 @@ class NativeOverlayManager(private val context: Context) {
      */
     private fun cancelLockCountdown() {
         lockCountdownCancelled = true
-        lockCountdownAnimator?.cancel()
-        lockCountdownAnimator = null
+        lockCountdownRunnable?.let { handler.removeCallbacks(it) }
+        lockCountdownRunnable = null
         isLockOverlayWithCountdown = false
     }
 
@@ -706,12 +756,16 @@ class NativeOverlayManager(private val context: Context) {
     }
 
     private fun removeCountdownView() {
+        countdownRunnable?.let { handler.removeCallbacks(it) }
+        countdownRunnable = null
+        countdownAlert3min = null
+        countdownAlert2min = null
+
         val view = countdownWidgetView
         countdownWidgetView = null
         isCountdownShowing = false
         countdownLayoutParams = null
         countdownTextTime = null
-        countdownAnimator = null
 
         view?.let {
             try {

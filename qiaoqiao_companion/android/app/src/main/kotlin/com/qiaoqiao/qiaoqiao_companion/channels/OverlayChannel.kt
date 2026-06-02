@@ -72,6 +72,9 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
     // 锁定弹窗休息截止时刻（墙上时钟毫秒）
     private var lockOverlayRestEndTime: Long = 0L
 
+    // 双路径去重：记录原生兜底锁定弹窗的时间戳
+    private var lastFallbackLockTimeMs: Long = 0L
+
     // 倒计时悬浮窗相关
     private var countdownWidgetView: View? = null
     private var isCountdownWidgetShowing = false
@@ -164,6 +167,15 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
         if (!hasOverlayPermission(context)) {
             result.error("NO_PERMISSION", "没有悬浮窗权限", null)
             return
+        }
+
+        // 双路径去重：如果原生兜底刚显示了锁定弹窗（2秒内），Flutter 路径不再重复创建
+        if (type == "lock" && packageName == currentPackageName) {
+            val elapsed = System.currentTimeMillis() - lastFallbackLockTimeMs
+            if (elapsed in 1..2000 && isOverlayShowing) {
+                result.success(null)
+                return
+            }
         }
 
         if (isOverlayShowing) {
@@ -506,17 +518,20 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
      * 启动倒计时 - 带结束回调（与按钮启用同步）
      */
     private fun startCountdown(textView: TextView, seconds: Int, closeButton: TextView? = null, accentColor: Int? = null) {
-        var remaining = seconds
-        val animator = ValueAnimator.ofInt(seconds, 0).apply {
-            duration = seconds * 1000L
-            interpolator = android.view.animation.LinearInterpolator()
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        val startMs = System.currentTimeMillis()
+        val totalMs = seconds * 1000L
 
-            addUpdateListener { animation ->
-                val current = animation.animatedValue as Int
-                if (current != remaining) {
-                    remaining = current
-                    textView.text = formatCountdownTimeHuman(current)
-                }
+        val ticker = object : Runnable {
+            override fun run() {
+                if (!isOverlayShowing) return
+
+                val elapsed = System.currentTimeMillis() - startMs
+                val remainingMs = (totalMs - elapsed).coerceAtLeast(0)
+                val remainingSec = (remainingMs / 1000).toInt()
+
+                textView.text = formatCountdownTimeHuman(remainingSec)
+
                 if (closeButton != null) {
                     if (System.currentTimeMillis() >= lockOverlayRestEndTime) {
                         closeButton.text = "知道了 ✨"
@@ -525,13 +540,14 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
                             cornerRadius = 28f
                         }
                     } else {
-                        closeButton.text = formatCountdownTimeHuman(current) + "后可关闭"
+                        closeButton.text = formatCountdownTimeHuman(remainingSec) + "后可关闭"
                     }
                 }
-            }
 
-            addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
+                if (remainingSec > 0) {
+                    val msUntilNextSec = (1000 - (remainingMs % 1000)).coerceAtLeast(100)
+                    handler.postDelayed(this, msUntilNextSec)
+                } else {
                     textView.text = "0秒"
                     if (closeButton != null) {
                         closeButton.text = "知道了 ✨"
@@ -541,26 +557,29 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
                         }
                     }
                 }
-            })
+            }
         }
-        animator.start()
+        handler.post(ticker)
     }
 
     /**
      * 启动关闭按钮倒计时
      */
     private fun startDismissCountdown(button: TextView, seconds: Int) {
-        var remaining = seconds
         button.tag = "countdown_active"
+        val endTimeMs = System.currentTimeMillis() + seconds * 1000L
         val handler = android.os.Handler(android.os.Looper.getMainLooper())
         val runnable = object : Runnable {
             override fun run() {
                 if (button.tag != "countdown_active") return
 
-                remaining--
+                val remainingMs = (endTimeMs - System.currentTimeMillis()).coerceAtLeast(0)
+                val remaining = (remainingMs / 1000).toInt()
+
                 if (remaining > 0) {
                     button.text = "${remaining}秒后可关闭"
-                    handler.postDelayed(this, 1000)
+                    val msUntilNextSec = (1000 - (remainingMs % 1000)).coerceAtLeast(100)
+                    handler.postDelayed(this, msUntilNextSec)
                 } else {
                     button.tag = null
                     button.text = "知道了"
@@ -760,7 +779,15 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
     private var notified3min = false
     private var notified2min = false
 
+    // 挂钟倒计时字段
+    private var countdownWallClockStartMs: Long = 0L
+    private var countdownTotalMs: Long = 0L
+    private var countdownHandler: android.os.Handler? = null
+    private var countdownRunnable: Runnable? = null
+
     private fun startCountdownWidgetAnimation(textView: TextView, totalSeconds: Int) {
+        // 取消之前的倒计时
+        countdownRunnable?.let { countdownHandler?.removeCallbacks(it) }
         countdownAnimator?.cancel()
 
         // 重置通知标记
@@ -768,54 +795,50 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
         notified2min = false
         countdownCancelled = false
 
-        countdownAnimator = ValueAnimator.ofInt(totalSeconds, 0).apply {
-            duration = totalSeconds * 1000L
-            // 使用线性插值器，确保倒计时均匀递减
-            interpolator = android.view.animation.LinearInterpolator()
+        // 记录挂钟起始时间
+        countdownWallClockStartMs = System.currentTimeMillis()
+        countdownTotalMs = totalSeconds * 1000L
 
-            addUpdateListener { animation ->
-                val current = animation.animatedValue as Int
-                textView.text = formatCountdownTime(current)
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        countdownHandler = handler
 
-                // 在3分钟时通知 Flutter（兜底，Flutter 可能已死）
-                if (current <= 180 && current > 120 && !notified3min) {
+        val ticker = object : Runnable {
+            override fun run() {
+                if (countdownCancelled) return
+
+                val elapsed = System.currentTimeMillis() - countdownWallClockStartMs
+                val remainingMs = (countdownTotalMs - elapsed).coerceAtLeast(0)
+                val remainingSec = (remainingMs / 1000).toInt()
+
+                textView.text = formatCountdownTime(remainingSec)
+
+                // 在3分钟时通知 Flutter
+                if (remainingSec <= 180 && remainingSec > 0 && !notified3min) {
                     notified3min = true
-                    try {
-                        notifyCountdownAlert("3min")
-                    } catch (_: Exception) { }
+                    try { notifyCountdownAlert("3min") } catch (_: Exception) { }
                 }
-                // 在2分钟时通知 Flutter（兜底，Flutter 可能已死）
-                if (current <= 120 && current > 60 && !notified2min) {
+                // 在2分钟时通知 Flutter
+                if (remainingSec <= 120 && remainingSec > 0 && !notified2min) {
                     notified2min = true
-                    try {
-                        notifyCountdownAlert("2min")
-                    } catch (_: Exception) { }
-                }
-            }
-
-            addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationCancel(animation: Animator) {
-                    countdownCancelled = true
+                    try { notifyCountdownAlert("2min") } catch (_: Exception) { }
                 }
 
-                override fun onAnimationEnd(animation: Animator) {
-                    if (countdownCancelled) return
+                if (remainingSec > 0) {
+                    // 计算到下一秒的精确延迟，保持 tick 对齐整秒
+                    val msUntilNextSec = (1000 - (remainingMs % 1000)).coerceAtLeast(100)
+                    handler.postDelayed(this, msUntilNextSec)
+                } else {
+                    // 倒计时结束
                     textView.text = formatCountdownTime(0)
-
-                    // 原生侧直接显示锁定弹窗（即使 Flutter 进程已死也能生效）
+                    lastFallbackLockTimeMs = System.currentTimeMillis()
                     showLockOverlayFromFallback()
-
-                    // 通知 Flutter（兜底，Flutter 可能已死）
-                    try {
-                        notifyCountdownEnded()
-                    } catch (_: Exception) {
-                        // Flutter 引擎不可用，忽略
-                    }
+                    try { notifyCountdownEnded() } catch (_: Exception) { }
                     removeCountdownWidgetView()
                 }
-            })
+            }
         }
-        countdownAnimator?.start()
+        countdownRunnable = ticker
+        handler.post(ticker)
     }
 
     /**
@@ -898,6 +921,9 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
         lockFallbackPackageName = null
         countdownAnimator?.cancel()
         countdownAnimator = null
+        countdownRunnable?.let { countdownHandler?.removeCallbacks(it) }
+        countdownRunnable = null
+        countdownHandler = null
         removeCountdownWidgetView()
     }
 

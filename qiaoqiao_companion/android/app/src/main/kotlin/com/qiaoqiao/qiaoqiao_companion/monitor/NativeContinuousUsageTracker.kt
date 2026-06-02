@@ -138,7 +138,7 @@ class NativeContinuousUsageTracker(
             return TrackingResult.restTriggered(0)
         }
 
-        if (remainingSeconds <= 5 * 60 && !countdownShown) {
+        if (remainingSeconds <= 5 * 60 && remainingSeconds < settings.limitSeconds && !countdownShown) {
             countdownShown = true
             return TrackingResult.showCountdown(remainingSeconds)
         }

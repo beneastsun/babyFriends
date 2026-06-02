@@ -10,6 +10,10 @@ class ContinuousSession {
   final DateTime? restEndTime; // 强制休息结束时间
   final Set<String> alertsShown; // 已显示的提醒级别
   final bool isActive;
+  /// 倒计时开始时间戳（毫秒）。与 [countdownTotalSeconds] 一起用于原生侧按挂钟恢复倒计时。
+  final int? countdownStartedAt;
+  /// 倒计时总秒数（首次显示时的剩余秒数）。
+  final int? countdownTotalSeconds;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -22,6 +26,8 @@ class ContinuousSession {
     this.restEndTime,
     this.alertsShown = const {},
     this.isActive = true,
+    this.countdownStartedAt,
+    this.countdownTotalSeconds,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -52,6 +58,8 @@ class ContinuousSession {
           : null,
       alertsShown: alerts,
       isActive: (map['is_active'] as int?) == 1,
+      countdownStartedAt: map['countdown_started_at'] as int?,
+      countdownTotalSeconds: map['countdown_total_seconds'] as int?,
       createdAt:
           DateTime.fromMillisecondsSinceEpoch(map['created_at'] as int),
       updatedAt:
@@ -70,6 +78,9 @@ class ContinuousSession {
       'alerts_shown':
           alertsShown.isEmpty ? null : jsonEncode(alertsShown.toList()),
       'is_active': isActive ? 1 : 0,
+      // 始终写出这两列（包括 null），确保 clearCountdown 时数据库中的旧值被清空
+      'countdown_started_at': countdownStartedAt,
+      'countdown_total_seconds': countdownTotalSeconds,
       'created_at': createdAt.millisecondsSinceEpoch,
       'updated_at': updatedAt.millisecondsSinceEpoch,
     };
@@ -101,6 +112,9 @@ class ContinuousSession {
     bool? clearRestEndTime,
     Set<String>? alertsShown,
     bool? isActive,
+    int? countdownStartedAt,
+    int? countdownTotalSeconds,
+    bool? clearCountdown,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -115,6 +129,12 @@ class ContinuousSession {
           clearRestEndTime == true ? null : (restEndTime ?? this.restEndTime),
       alertsShown: alertsShown ?? this.alertsShown,
       isActive: isActive ?? this.isActive,
+      countdownStartedAt: clearCountdown == true
+          ? null
+          : (countdownStartedAt ?? this.countdownStartedAt),
+      countdownTotalSeconds: clearCountdown == true
+          ? null
+          : (countdownTotalSeconds ?? this.countdownTotalSeconds),
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

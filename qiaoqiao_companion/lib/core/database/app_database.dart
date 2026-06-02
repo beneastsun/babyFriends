@@ -181,6 +181,8 @@ class AppDatabase {
         rest_end_time INTEGER,
         alerts_shown TEXT,
         is_active INTEGER DEFAULT 1,
+        countdown_started_at INTEGER,
+        countdown_total_seconds INTEGER,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
@@ -483,6 +485,20 @@ class AppDatabase {
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
 
       print('[AppDatabase] Upgrade to v4 completed');
+    }
+
+    if (oldVersion < 5) {
+      // v4 -> v5: 连续使用会话表新增倒计时恢复字段，用于原生侧在进程被杀后恢复倒计时
+      print('[AppDatabase] Upgrading from v4 to v5...');
+
+      await db.execute(
+        'ALTER TABLE ${DatabaseConstants.tableContinuousSessions} ADD COLUMN countdown_started_at INTEGER',
+      );
+      await db.execute(
+        'ALTER TABLE ${DatabaseConstants.tableContinuousSessions} ADD COLUMN countdown_total_seconds INTEGER',
+      );
+
+      print('[AppDatabase] Upgrade to v5 completed');
     }
   }
 

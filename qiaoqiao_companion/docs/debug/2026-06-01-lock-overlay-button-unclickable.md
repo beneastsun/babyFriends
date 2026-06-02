@@ -1,10 +1,22 @@
 # 锁定弹窗"知道了"按钮不可点击 Bug 排查记录
 
+## TL;DR
+
+| 项目 | 内容 |
+|---|---|
+| **症状** | 连续使用倒计时结束后，锁定弹窗出现，等完休息时长后"知道了"按钮无法点击（或点击后窗口不消失） |
+| **根因** | 同一个 `showOverlay()` 被**原生兜底**和 **Flutter 路径**在 ≤1ms 内重复触发，导致两条异步回调（`ValueAnimator.onAnimationEnd` / `View.animate()` 淡出回调）在共享的类字段（`pendingCloseButton` / `overlayView`）上发生竞态 |
+| **最终修复** | 1) 铲除基于 `ValueAnimator.onAnimationEnd` 的按钮启用机制，改用挂钟 `System.currentTimeMillis() >= lockOverlayRestEndTime` 控制按钮可用性；2) 淡出回调加 `if (overlayView == view)` 保护判断 |
+| **影响文件** | `android/app/src/main/kotlin/.../channels/OverlayChannel.kt` |
+| **状态** | ✅ 已修复并提交 |
+
+---
+
 ## 基本信息
 
 - **日期**: 2026-06-01
-- **影响文件**: `android/../channels/OverlayChannel.kt`
-- **复现条件**: 连续使用倒计时结束后，锁定弹窗出现，等待休息时长后点击"知道了"按钮无法关闭窗口
+- **影响文件**: `android/app/src/main/kotlin/com/qiaoqiao/qiaoqiao_companion/channels/OverlayChannel.kt`
+- **复现路径**: 使用受监控 App → 连续使用倒计时（最后 5 分钟）出现 → 倒计时归零 → 锁定弹窗出现 → 等完配置的休息时长 → 点击"知道了"
 - **严重程度**: 高（用户永远无法关闭锁定弹窗，只能重启应用）
 
 ---
@@ -13,7 +25,7 @@
 
 ### 现象
 
-锁定弹窗中"知道了"按钮始终处于禁用状态（灰色），无法点击。
+锁定弹窗中"知道了"按钮始终处于禁用状态（灰色），无论等多久都不可点击。
 
 ### 初步分析
 
@@ -21,29 +33,30 @@
 
 ### 发现的时序问题
 
-倒计时结束后有**两条路径同时显示锁定弹窗**：
+倒计时结束后**两条路径几乎同时显示锁定弹窗**：
 
-1. **原生兜底路径**: `startCountdownWidgetAnimation.onAnimationEnd` →
-   `showLockOverlayFromFallback()` → `showOverlay(type="lock")` → 创建覆盖层 #1 + `startCountdown #1`
+1. **原生兜底路径**：`startCountdownWidgetAnimation.onAnimationEnd`
+   → `showLockOverlayFromFallback()` → `showOverlay(type="lock")`
+   → 创建覆盖层 #1 + `startCountdown #1`
 
-2. **Flutter 路径**: `notifyCountdownEnded()` （通过 MethodChannel 异步通知 Flutter）→
-   `_handleCountdownEnded()` → `_triggerForcedRestAfterCountdown()` →
-   `checkAndShowForbiddenReminder()` → `showOverlay(type="lock")`
+2. **Flutter 路径**：`notifyCountdownEnded()`（通过 MethodChannel 异步通知 Flutter）
+   → `_handleCountdownEnded()` → `_triggerForcedRestAfterCountdown()`
+   → `checkAndShowForbiddenReminder()` → `showOverlay(type="lock")`
 
-   Flutter 路径的 `showOverlay` 中 `isOverlayShowing = true`，所以先调用了 `hideOverlay()`——
+   Flutter 路径进入时 `isOverlayShowing = true`，所以先调用 `hideOverlay()`——
    **这会把 `pendingCloseButton = null`**——然后再创建覆盖层 #2 + `startCountdown #2`
 
 于是两条 `startCountdown` 同时运行，谁的 `onAnimationEnd` 先执行，谁就消费掉 `pendingCloseButton` 并置 `null`，另一条看到 `null` 就跳过——**按钮永远不可点击**。
 
 ### 修复方案 V1
 
-铲除 `pendingCloseButton` 字段及所有依赖 `ValueAnimator.onAnimationEnd` 的按钮启用逻辑，改用**墙上时钟**控制：
+铲除 `pendingCloseButton` 字段及所有依赖 `ValueAnimator.onAnimationEnd` 的按钮启用逻辑，改用**挂钟**控制：
 
 - 按钮始终保持 `isEnabled = true`
 - 点击时检查 `System.currentTimeMillis() >= lockOverlayRestEndTime`
-- 按钮文本在 `startCountdown` 的 `addUpdateListener` 中实时更新
+- 按钮文本在 `startCountdown` 的 `addUpdateListener` 中实时更新（每秒刷新一次剩余时间文本）
 
-**提交**: 删除了 `pendingCloseButton`、`pendingCloseButtonAccent`、`enablePendingCloseButton()`，新增 `lockOverlayRestEndTime` 字段，修改 `startCountdown` 签名和 `hideOverlay`。
+**提交**：删除了 `pendingCloseButton`、`pendingCloseButtonAccent`、`enablePendingCloseButton()`，新增 `lockOverlayRestEndTime` 字段，修改 `startCountdown` 签名和 `hideOverlay`。
 
 ### 结果
 
@@ -63,28 +76,28 @@
 
 ```
 时间线:
-T0: 原生兜底路径 showLockOverlayFromFallback() → showOverlay()
-    → overlayView = 覆盖层 A
-T0+1ms: Flutter 路径 checkAndShowForbiddenReminder() → showOverlay()
-    → hideOverlay():
-        overlayView?.let { view ->
-            view.animate().alpha(0f).setDuration(200).setListener {
-                onAnimationEnd {
-                    removeView(view)
-                    overlayView = null     ← 注意！
-                    isOverlayShowing = false
-                }
-            }
-        }
-    → overlayView = 覆盖层 B  ← 此时覆盖层 A 的动画还在跑
-T0+200ms: 覆盖层 A 的淡出动画结束
-    → onAnimationEnd 回调执行
-    → overlayView = null    ← 错误！覆盖层 B 的引用被清掉了
-T0+...: 用户点击"知道了"
-    → hideOverlay()
-    → overlayView 是 null
-    → 什么都不做
-    → 覆盖层 B 永远留在屏幕上
+T0       原生兜底路径 showLockOverlayFromFallback() → showOverlay()
+         → overlayView = 覆盖层 A
+T0+1ms   Flutter 路径 checkAndShowForbiddenReminder() → showOverlay()
+         → hideOverlay():
+             overlayView?.let { view ->
+                 view.animate().alpha(0f).setDuration(200).setListener {
+                     onAnimationEnd {
+                         removeView(view)
+                         overlayView = null     ← 注意！
+                         isOverlayShowing = false
+                     }
+                 }
+             }
+         → overlayView = 覆盖层 B  ← 此时覆盖层 A 的淡出动画还在跑
+T0+200ms 覆盖层 A 的淡出动画结束
+         → onAnimationEnd 回调执行
+         → overlayView = null    ← 错误！覆盖层 B 的引用被清掉了
+T0+...   用户点击"知道了"
+         → hideOverlay()
+         → overlayView 是 null
+         → 什么都不做
+         → 覆盖层 B 永远留在屏幕上
 ```
 
 ### 根因
@@ -111,30 +124,41 @@ override fun onAnimationEnd(animation: Animator) {
 
 ---
 
+## 最终修复对照表
+
+| 位置 | 修复前 | 修复后 |
+|---|---|---|
+| 按钮启用时机 | `ValueAnimator.onAnimationEnd` 调用 `enablePendingCloseButton()`（依赖类字段 `pendingCloseButton`） | 按钮始终 `isEnabled = true`，点击时校验 `System.currentTimeMillis() >= lockOverlayRestEndTime` |
+| 按钮文本更新 | 一次性静态文本 | `startCountdown` 的 `addUpdateListener` 每秒刷新 |
+| 淡出回调 | 无条件 `overlayView = null` | 加 `if (overlayView == view)` 保护判断 |
+| 共享类字段 | `pendingCloseButton` / `pendingCloseButtonAccent` | 删除；仅保留 `lockOverlayRestEndTime`（时间戳，无对象引用问题） |
+
+---
+
 ## 经验总结
 
-### 1. 异步动画与状态管理
+### 原则 1：异步回调中访问类字段 = 危险信号
 
-`View.animate()` 的淡出动画是异步的（默认 200ms），**回调执行时调用栈早已不同**。任何在动画期间可能修改类字段的代码，都需要在回调中加入保护判断。
+`View.animate()` / `ValueAnimator` 的回调是异步执行的（回调触发时调用栈早已不同）。任何在回调中读写类字段的代码，都必须考虑**回调触发时字段可能已被其他调用修改**。
 
-**不安全的模式**:
+**不安全**：
 ```kotlin
 fun hide() {
     view?.animate()?.setListener(object : AnimatorListenerAdapter() {
         override fun onAnimationEnd(animation: Animator) {
-            view = null  // 危险！view 可能已被重新赋值
+            view = null  // ❌ view 可能已被重新赋值
         }
     })
 }
 ```
 
-**安全的模式**:
+**安全**：
 ```kotlin
 fun hide() {
-    view?.let { v ->    // 先用局部变量捕获当前引用
+    view?.let { v ->    // 用局部变量捕获当前引用
         v.animate()?.setListener(object : AnimatorListenerAdapter() {
             override fun onAnimationEnd(animation: Animator) {
-                if (view == v) {  // 确认还是同一个对象
+                if (view == v) {  // ✅ 身份确认
                     view = null
                 }
             }
@@ -143,21 +167,45 @@ fun hide() {
 }
 ```
 
-### 2. 防御性编程：类字段 vs 局部变量
+### 原则 2：能用"墙钟 + 值对象"就不用"对象引用 + 回调"
 
-- `pendingCloseButton` 作为类字段在 `hideOverlay()` 中被置 null，导致 `startCountdown` 的 `onAnimationEnd` 回调无法找到按钮引用
-- 修复方案改为将按钮引用作为参数传给 `startCountdown`（捕获到 ValueAnimator 的 lambda 中），不依赖类字段
+`pendingCloseButton` 是一个 `View` 引用字段——任何持有该引用的异步任务都可能在错误的时间点访问已失效的对象。改为记录 `lockOverlayRestEndTime: Long`（时间戳是值对象），让"是否可点击"变成一个**纯计算**而非**状态同步**问题，从根本上消除了竞态。
 
-**原则**: 如果值在创建时就能确定且后续不会变化，优先用局部变量或函数参数传递，而不是存为类字段。
+**适用场景**：
+- 按钮"在 X 秒后可点击"
+- 弹窗"在 X 秒后自动关闭"
+- 提示"在 X 秒内不重复显示"
 
-### 3. 双重触发问题（UI 兜底的代价）
+**反例**：不要为这些场景创建 `Timer` / `Animator` / `Handler.postDelayed` 回调去修改某个 `isEnabled` 字段——直接用挂钟判断。
 
-原生兜底 + Flutter 路径同时触发同一事件是这类 Bug 的常见来源。设计防御性代码时需要考虑：
-- 如果两条路径同时触发，是否会有状态冲突？
-- 是否可以统一入口，避免重复执行？
+### 原则 3：类字段 vs 局部变量
 
-本例中无法简单统一入口（因为兜底路径就是为 Flutter 死亡场景设计的），所以需要确保类状态能正确处理重复调用。
+- 如果值在创建时就能确定且后续不会变化，优先用**局部变量或函数参数**传递，而不是存为类字段。
+- 本例中 `pendingCloseButton` 原本应该作为参数传给 `startCountdown`，让 `ValueAnimator` 的 lambda 直接捕获它，而不是通过类字段间接访问。
 
-### 4. 一个 Bug 可能掩盖另一个 Bug
+### 原则 4：双路径触发的防御设计
 
-第一轮修复后按钮变得可点击，但窗口仍然关不掉——说明问题不在按钮启用机制，而在 `hideOverlay()` 本身。花时间做完整的问题复现和端到端跟踪（从点击到窗口消失的完整链路）能更快定位真正的根因。
+原生兜底 + Flutter 路径同时触发同一事件是这类 Bug 的常见来源。设计时自问：
+
+1. 两条路径同时触发时，状态会不会冲突？
+2. 能否在入口加 `isDoingX` 标志做去重？
+3. 如果无法统一入口，共享状态（字段、WindowManager 中的 view、SharedPreferences）是否都做了幂等处理？
+
+本例兜底路径是专门为 Flutter 死亡场景设计的，无法与 Flutter 路径合并，所以**只能**通过"让共享状态在重复调用下仍然正确"来防御。
+
+### 原则 5：一个 Bug 掩盖另一个 Bug
+
+第一轮修复后按钮变得可点击，但窗口仍然关不掉——说明问题不止一个。
+
+**做法**：修完一个 Bug 后，**重头走一遍完整用户路径**（点击 → 状态变更 → 窗口消失 → 资源回收），而不是只验证"按钮可点了"就结束。端到端跟踪能更快暴露深层问题。
+
+---
+
+## 关联改动
+
+本次排查暴露的"异步回调 + 类字段"反模式在仓库中可能还存在于：
+
+- `NativeOverlayManager.kt` 中的 `lockCountdownAnimator` / `countdownAnimator` 回调（已用 `lockCountdownCancelled` / `countdownCancelled` 标志做基本保护）
+- 其他使用 `View.animate().withEndAction { ... }` 的地方
+
+**建议**：日后修改任何涉及异步动画回调的代码时，对照原则 1 和 2 检查一遍。

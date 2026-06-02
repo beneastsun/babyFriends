@@ -43,9 +43,9 @@ class ContinuousUsageService {
     final remainingSeconds = limitSeconds - session.totalDurationSeconds;
 
     if (remainingSeconds <= 0) return ContinuousUsageStatus.atLimit;
-    if (remainingSeconds <= 2 * 60) return ContinuousUsageStatus.warning2min;
-    if (remainingSeconds <= 3 * 60) return ContinuousUsageStatus.warning3min;
-    if (remainingSeconds <= 5 * 60) return ContinuousUsageStatus.warning5min;
+    if (limitSeconds > 5 * 60 && remainingSeconds <= 5 * 60) return ContinuousUsageStatus.warning5min;
+    if (limitSeconds > 3 * 60 && remainingSeconds <= 3 * 60) return ContinuousUsageStatus.warning3min;
+    if (limitSeconds > 2 * 60 && remainingSeconds <= 2 * 60) return ContinuousUsageStatus.warning2min;
 
     return ContinuousUsageStatus.normal;
   }
@@ -142,6 +142,7 @@ class ContinuousUsageService {
       totalDurationSeconds: totalDurationSeconds,
       lastActivityTime: now,
       restEndTime: restEndTime,
+      clearCountdown: true,
       updatedAt: now,
     ));
     print('[ContinuousUsage] Force rest triggered, restEndTime: $restEndTime');
@@ -163,6 +164,7 @@ class ContinuousUsageService {
 
     final updatedSession = session.copyWith(
       restEndTime: restEndTime,
+      clearCountdown: true,
       updatedAt: DateTime.now(),
     );
     await _sessionDao.update(updatedSession);
@@ -186,18 +188,18 @@ class ContinuousUsageService {
     }
 
     // 按从宽松到紧急的顺序检查，确保不会跳过任何级别
-    // 5分钟警告 - 必须先检查
-    if (remainingSeconds <= 5 * 60 && !session.alertsShown.contains('5min')) {
+    // 5分钟警告 - 必须先检查（仅当总限制时长 > 5分钟时才触发）
+    if (limitSeconds > 5 * 60 && remainingSeconds <= 5 * 60 && !session.alertsShown.contains('5min')) {
       return '5min';
     }
 
-    // 3分钟倒计时 - 在5分钟已显示后检查
-    if (remainingSeconds <= 3 * 60 && !session.alertsShown.contains('3min')) {
+    // 3分钟倒计时 - 在5分钟已显示后检查（仅当总限制时长 > 3分钟时才触发）
+    if (limitSeconds > 3 * 60 && remainingSeconds <= 3 * 60 && !session.alertsShown.contains('3min')) {
       return '3min';
     }
 
-    // 2分钟警告 - 在3分钟已显示后检查
-    if (remainingSeconds <= 2 * 60 && !session.alertsShown.contains('2min')) {
+    // 2分钟警告 - 在3分钟已显示后检查（仅当总限制时长 > 2分钟时才触发）
+    if (limitSeconds > 2 * 60 && remainingSeconds <= 2 * 60 && !session.alertsShown.contains('2min')) {
       return '2min';
     }
 
@@ -257,6 +259,11 @@ class ContinuousUsageService {
   /// 获取当前活跃会话
   Future<ContinuousSession?> getActiveSession() async {
     return await _sessionDao.getActiveSession(_today());
+  }
+
+  /// 对外暴露会话更新能力（用于 UsageMonitorService 持久化倒计时状态等）。
+  Future<void> updateSession(ContinuousSession session) async {
+    await _sessionDao.update(session);
   }
 }
 

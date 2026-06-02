@@ -3,7 +3,7 @@ class DatabaseConstants {
   DatabaseConstants._();
 
   static const String databaseName = 'qiaoqiao_companion.db';
-  static const int databaseVersion = 4;
+  static const int databaseVersion = 5;
 
   // 表名
   static const String tableAppUsageRecords = 'app_usage_records';

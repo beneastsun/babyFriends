@@ -4,3 +4,4 @@ export 'reminder_service.dart';
 export 'rule_checker_service.dart';
 export 'animation_service.dart';
 export 'sound_service.dart';
+export 'overlay_state_manager.dart';

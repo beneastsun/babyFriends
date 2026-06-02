@@ -111,6 +111,8 @@ class MonitorForegroundService : Service() {
     private var nativeOverlayManager: NativeOverlayManager? = null
     private var lastBlockedPackage: String? = null
 
+    // (WAKEUP_ENGINE 已移除：MIUI 阻止后台 Activity 启动，改用原生直接显示倒计时)
+
     override fun onCreate() {
         super.onCreate()
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -298,6 +300,14 @@ class MonitorForegroundService : Service() {
     /**
      * 原生监控轮询 Runnable
      * 每 5 秒检测前台 App，检查规则，必要时显示锁定覆盖层或倒计时悬浮窗
+     *
+     * 分两步：
+     *  步骤 A：倒计时恢复（独立于前台应用）。只要 DB 里有活跃倒计时，且 Flutter 已死，
+     *         就保证原生倒计时悬浮窗显示并校准剩余时间；倒计时过期则触发强制休息。
+     *         这是修复「划掉 App 后倒计时不再出现」的核心。
+     * 步骤 B：针对前台受监控 App 的原有规则检查（时间段/总时间/每日上限/连续使用）。
+     *         当 Flutter 死亡时，直接用 NativeOverlayManager 显示倒计时/锁屏，
+     *         不依赖 WAKEUP_ENGINE（MIUI 会阻止后台 Activity 启动）。
      */
     private val monitorRunnable = object : Runnable {
         override fun run() {
@@ -307,14 +317,36 @@ class MonitorForegroundService : Service() {
                     applicationContext, packageName
                 )
 
-                // ===== 单一路径规则检查（checkApp 内部包含连续使用、时间段、总时间、每日限制） =====
+                // ===== 步骤 A：倒计时恢复（与前台应用无关）=====
+                if (!MainActivity.isFlutterAlive) {
+                    val remaining = checkActiveCountdown(now)
+                    if (remaining != null) {
+                        if (remaining > 0) {
+                            // 清除可能与倒计时冲突的锁屏覆盖层残留
+                            if (lastBlockedPackage != null) {
+                                nativeOverlayManager?.hideOverlay()
+                                lastBlockedPackage = null
+                            }
+                            if (nativeOverlayManager?.isCountdownShowing() != true) {
+                                showNativeCountdown(remaining)
+                            } else {
+                                // 已经显示：每 5 秒用挂钟时间校准一次，防止 animator 漂移
+                                nativeOverlayManager?.updateCountdownTime(remaining)
+                            }
+                        } else {
+                            // 倒计时已过期 → 强制休息
+                            nativeOverlayManager?.hideCountdownOverlay()
+                            triggerNativeForcedRest(now)
+                        }
+                    }
+                }
+
+                // ===== 步骤 B：原有规则检查（针对前台受监控 App）=====
                 if (foregroundApp != null) {
                     val result = nativeRuleChecker!!.checkApp(foregroundApp, now)
 
-                    // 如果 Flutter 引擎还活着，所有 UI 操作由 Flutter 侧处理
-                    // 原生侧只做 DB 操作（checkApp 内部已做），不做任何 UI 弹窗
-                    if (com.qiaoqiao.qiaoqiao_companion.MainActivity.isFlutterAlive) {
-                        // 清理可能残留的原生覆盖层（防止切换/重启时的残留）
+                    if (MainActivity.isFlutterAlive) {
+                        // Flutter 引擎还活着 → 所有 UI 由 Flutter 侧处理，原生只清理残留
                         if (nativeOverlayManager?.isCountdownShowing() == true) {
                             nativeOverlayManager?.hideCountdownOverlay()
                         }
@@ -323,39 +355,40 @@ class MonitorForegroundService : Service() {
                             lastBlockedPackage = null
                         }
                     } else {
-                        // Flutter 死亡 → 原生接管所有 UI 操作
-                        // 1. 连续使用倒计时（优先于锁定覆盖层）
-                        if (result.needsCountdown) {
+                        // Flutter 死亡 → 原生接管所有 UI（锁屏 / 倒计时 / 强制休息）
+                        // 不再尝试 WAKEUP_ENGINE（MIUI 阻止后台 Activity 启动）
+                        if (result.blocked) {
+                            // 阻止级别：显示锁屏前先清掉倒计时悬浮窗（锁屏优先级更高）
+                            if (nativeOverlayManager?.isCountdownShowing() == true) {
+                                nativeOverlayManager?.hideCountdownOverlay()
+                            }
+                            nativeOverlayManager!!.showLockOverlay(result.reason, foregroundApp)
+                            lastBlockedPackage = foregroundApp
+                            Log.d(TAG, "Blocked $foregroundApp: ${result.reason} (${result.ruleType})")
+                        } else if (result.needsCountdown) {
+                            // 需要倒计时但未被阻止：直接用原生倒计时悬浮窗显示
+                            // 这是修复「划掉 App 后无提示」的核心改动
+                            if (nativeOverlayManager?.isCountdownShowing() != true) {
+                                showNativeCountdown(result.countdownSeconds)
+                                // 持久化倒计时状态到 DB，让步骤 A 后续能独立维护
+                                persistCountdownState(now, result.countdownSeconds)
+                            } else {
+                                nativeOverlayManager?.updateCountdownTime(result.countdownSeconds)
+                            }
                             if (lastBlockedPackage != null) {
                                 nativeOverlayManager?.hideOverlay()
                                 lastBlockedPackage = null
                             }
-                            if (nativeOverlayManager?.isCountdownShowing() != true) {
-                                nativeOverlayManager?.showCountdownOverlay(result.countdownSeconds) {
-                                    Log.d(TAG, "Countdown ended - rest should be active")
-                                }
-                            }
-                        } else {
-                            if (nativeOverlayManager?.isCountdownShowing() == true) {
-                                nativeOverlayManager?.hideCountdownOverlay()
-                            }
-                        }
-
-                        // 2. 锁定/强制休息
-                        if (result.blocked) {
-                            nativeOverlayManager!!.showLockOverlay(result.reason, foregroundApp)
-                            lastBlockedPackage = foregroundApp
-                            Log.d(TAG, "Blocked $foregroundApp: ${result.reason} (${result.ruleType})")
+                            Log.d(TAG, "Native countdown for $foregroundApp: remaining=${result.countdownSeconds}s (${result.ruleType})")
                         } else if (lastBlockedPackage == foregroundApp) {
                             nativeOverlayManager!!.hideOverlay()
                             lastBlockedPackage = null
                         }
+                        // 注意：不再尝试 WAKEUP_ENGINE，完全由原生接管 UI
                     }
                 } else {
-                    // 无前台应用：隐藏所有覆盖层
-                    if (nativeOverlayManager?.isCountdownShowing() == true) {
-                        nativeOverlayManager?.hideCountdownOverlay()
-                    }
+                    // 无前台应用（启动器等被 isSystemUiApp 过滤）→ 只清理锁屏覆盖层残留。
+                    // 重要：不再调用 hideCountdownOverlay()，倒计时由步骤 A 独立维护。
                     if (lastBlockedPackage != null) {
                         nativeOverlayManager?.hideOverlay()
                         lastBlockedPackage = null
@@ -369,34 +402,113 @@ class MonitorForegroundService : Service() {
         }
     }
 
+    // ==================== 倒计时恢复辅助方法 ====================
+
     /**
-     * 处理连续使用检查结果（stateless 版本，与禁止时段弹窗相同方式）
+     * 从 DB 读取活跃会话的倒计时剩余秒数（按挂钟计算）。
+     * 返回 null 表示没有活跃的倒计时（Flutter 侧未写入两列）。
+     * 返回 > 0 表示还剩 N 秒；返回 <= 0 表示已过期，应触发强制休息。
      */
-    private fun handleContinuousResult(
-        result: NativeRuleChecker.ContinuousUsageResult,
-        packageName: String
-    ) {
-        when {
-            result.shouldShowCountdown -> {
-                Log.d(TAG, "Showing countdown overlay: ${result.remainingSeconds}s")
-                if (lastBlockedPackage != null) {
-                    nativeOverlayManager?.hideOverlay()
-                    lastBlockedPackage = null
+    private fun checkActiveCountdown(now: Long): Long? {
+        val repo = nativeRuleRepository ?: return null
+        val settings = repo.getContinuousUsageSettings()
+        if (!settings.enabled) return null
+        val session = repo.getActiveContinuousSession() ?: return null
+        val startedAt = session.countdownStartedAt ?: return null
+        val totalSec = session.countdownTotalSeconds ?: return null
+        val endMs = startedAt + totalSec * 1000L
+        return (endMs - now) / 1000L
+    }
+
+    /**
+     * 显示原生倒计时悬浮窗并挂载 3/2 分钟提醒和结束回调。
+     */
+    private fun showNativeCountdown(remaining: Long) {
+        val settings = nativeRuleRepository?.getContinuousUsageSettings()
+        nativeOverlayManager?.showCountdownOverlayWithAlerts(
+            remaining,
+            onAlert3min = Runnable {
+                try {
+                    nativeOverlayManager?.showLockOverlay(
+                        "连续使用还剩 3 分钟，请准备休息~", "", 0
+                    )
+                    monitorHandler?.postDelayed({
+                        try { nativeOverlayManager?.hideOverlay() } catch (_: Exception) {}
+                    }, 5000)
+                } catch (e: Exception) {
+                    Log.e(TAG, "3-min alert failed", e)
                 }
-                nativeOverlayManager?.showCountdownOverlay(result.remainingSeconds) {
-                    Log.d(TAG, "Countdown ended - rest should be active")
+            },
+            onAlert2min = Runnable {
+                try {
+                    nativeOverlayManager?.showLockOverlay(
+                        "连续使用还剩 2 分钟！请尽快结束！", "", 0
+                    )
+                    monitorHandler?.postDelayed({
+                        try { nativeOverlayManager?.hideOverlay() } catch (_: Exception) {}
+                    }, 5000)
+                } catch (e: Exception) {
+                    Log.e(TAG, "2-min alert failed", e)
                 }
+            },
+            onEnded = Runnable {
+                triggerNativeForcedRest(System.currentTimeMillis())
             }
-            result.shouldUpdateCountdown -> {
-                nativeOverlayManager?.updateCountdownTime(result.remainingSeconds)
+        )
+        Log.d(TAG, "Native countdown shown: remaining=${remaining}s, restSeconds=${settings?.restSeconds}")
+    }
+
+    /**
+     * 原生触发强制休息：写 restEndTime、清空倒计时两列、显示锁屏覆盖层（带休息倒计时）。
+     */
+    private fun triggerNativeForcedRest(now: Long) {
+        val repo = nativeRuleRepository ?: return
+        val settings = repo.getContinuousUsageSettings()
+        val session = repo.getActiveContinuousSession() ?: return
+        val restEnd = now + settings.restSeconds * 1000L
+        repo.updateContinuousSession(session.copy(
+            totalDurationSeconds = settings.limitSeconds.coerceAtLeast(session.totalDurationSeconds),
+            restEndTime = restEnd,
+            countdownStartedAt = null,
+            countdownTotalSeconds = null,
+            updatedAt = now
+        ))
+        try {
+            nativeOverlayManager?.showLockOverlay(
+                "正在休息中，还需要 ${formatNativeRemainingTime(settings.restSeconds)}",
+                "",
+                settings.restSeconds.toInt()
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to show forced rest lock overlay", e)
+        }
+        Log.d(TAG, "Native forced rest triggered: restEnd=$restEnd, restSeconds=${settings.restSeconds}")
+    }
+
+    private fun formatNativeRemainingTime(seconds: Long): String {
+        val m = seconds / 60
+        val s = seconds % 60
+        return if (m > 0) "${m}分${s}秒" else "${s}秒"
+    }
+
+    /**
+     * 将倒计时状态持久化到 DB（countdownStartedAt / countdownTotalSeconds）。
+     * 让步骤 A 在后续轮询中能独立维护倒计时（不依赖前台 app 类型）。
+     */
+    private fun persistCountdownState(now: Long, remainingSeconds: Long) {
+        val repo = nativeRuleRepository ?: return
+        try {
+            val session = repo.getActiveContinuousSession()
+            if (session != null) {
+                repo.updateContinuousSession(session.copy(
+                    countdownStartedAt = now,
+                    countdownTotalSeconds = remainingSeconds,
+                    updatedAt = now
+                ))
+                Log.d(TAG, "Persisted countdown state: startedAt=$now, total=$remainingSeconds")
             }
-            result.isRestTriggered -> {
-                nativeOverlayManager?.hideCountdownOverlay()
-                Log.d(TAG, "Rest triggered, countdown hidden")
-            }
-            result.isRestActive -> {
-                // 休息中，强制休息锁由 checkApp 的 forced_rest 分支处理
-            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to persist countdown state", e)
         }
     }
 
