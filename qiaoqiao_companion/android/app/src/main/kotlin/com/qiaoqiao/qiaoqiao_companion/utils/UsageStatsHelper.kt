@@ -46,7 +46,8 @@ object UsageStatsHelper {
                 as UsageStatsManager
 
         val endTime = System.currentTimeMillis()
-        val startTime = endTime - 30_000L
+        // 扩大查询窗口到 60 秒，确保能捕获到长时间在前台的 app
+        val startTime = endTime - 60_000L
 
         val usageEvents = usageStatsManager.queryEvents(startTime, endTime)
         var lastResumedPackage: String? = null
@@ -79,17 +80,46 @@ object UsageStatsHelper {
             }
         }
 
-        Log.d(TAG, "getCurrentForegroundApp: lastResumedPackage=$lastResumedPackage, lastPausedPackage=$lastPausedPackage")
-
+        // 判断前台 app：最后一次 resume 的 app 且没有被更新的 pause 覆盖
+        var result: String? = null
         if (lastResumedPackage != null &&
             (lastPausedPackage != lastResumedPackage || lastPausedTime < lastResumedTime)) {
             if (excludePackage != null && lastResumedPackage == excludePackage) {
-                return null
+                result = null
+            } else {
+                result = lastResumedPackage
             }
-            return lastResumedPackage
         }
 
-        return null
+        // 兜底：如果事件查询没有找到前台 app，使用 queryUsageStats 获取最近使用的 app
+        if (result == null) {
+            try {
+                val stats = usageStatsManager.queryUsageStats(
+                    UsageStatsManager.INTERVAL_BEST,
+                    endTime - 10_000L,
+                    endTime
+                )
+                var bestPackage: String? = null
+                var bestLastTime: Long = 0
+                for (stat in stats) {
+                    val pkg = stat.packageName
+                    if (pkg == excludePackage || isSystemUiApp(pkg)) continue
+                    if (stat.lastTimeUsed > bestLastTime) {
+                        bestLastTime = stat.lastTimeUsed
+                        bestPackage = pkg
+                    }
+                }
+                if (bestPackage != null && bestLastTime > endTime - 60_000L) {
+                    result = bestPackage
+                    Log.d(TAG, "getCurrentForegroundApp fallback: using queryUsageStats, result=$bestPackage, lastTimeUsed=$bestLastTime")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "queryUsageStats fallback failed", e)
+            }
+        }
+
+        Log.d(TAG, "getCurrentForegroundApp: result=$result, lastResumedPackage=$lastResumedPackage, lastPausedPackage=$lastPausedPackage")
+        return result
     }
 
     private fun isSystemUiApp(packageName: String): Boolean {

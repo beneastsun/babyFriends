@@ -59,7 +59,6 @@ class UsageMonitorService {
 
   // === 秒表悬浮窗状态 ===
   bool _stopwatchWidgetShowing = false;
-  DateTime? _lastStopTime; // 上次停止使用监控应用的时间
 
   /// 监控间隔（秒）- 从系统同步数据的间隔
   static const int monitorIntervalSeconds = 30;
@@ -180,27 +179,22 @@ class UsageMonitorService {
       } else {
         await _showStopwatchWidget(inRest: inRest);
       }
-
-      // 重置停止时间
-      _lastStopTime = null;
     } else {
       // 离开监控应用（息屏或切换到非监控app）
-      // 立即隐藏倒计时 widget（用户不在使用监控 app 时不应显示悬浮窗）
-      if (_countdownWidgetShowing || _stopwatchWidgetShowing) {
-        await _hideStopwatchWidget();
-        print('[UsageMonitor] 离开监控应用，立即隐藏倒计时 widget');
-      }
-
-      // 关键：不重置 _currentSessionApp，保留它用于5分钟内恢复
-      // 只设置 _isSessionActive = false，停止累加时间
-      if (_isSessionActive) {
-        print('[UsageMonitor] Session paused (not tracking), currentApp: $currentApp');
-        _lastStopTime = now;
-      }
+      // 立即隐藏 widget：用户明确要求"没使用就消失"
+      // 注意：强制休息期间不隐藏 widget（休息倒计时应持续显示直到休息结束）
+      print('[UsageMonitor] shouldTrackCurrent=false: currentApp=$currentApp, '
+          'lastSessionApp=$_currentSessionApp, isActive=$_isSessionActive, '
+          'cd=$_countdownWidgetShowing, fr=$_forceRestInProgress');
       _isSessionActive = false;
 
-      // 检查是否需要因长时间休息而重置会话
-      await _checkHideStopwatchAfterRest(now, settings);
+      // 强制休息期间不隐藏 widget（休息倒计时需要持续显示直到休息结束）
+      if (!_forceRestInProgress) {
+        await _hideStopwatchWidget();
+      }
+
+      // 检查是否需要因长时间休息而重置会话（仅重置会话，不控制 widget 隐藏）
+      await _checkAndResetSessionAfterRest(now, settings);
     }
   }
 
@@ -209,7 +203,27 @@ class UsageMonitorService {
   /// [inRest] 为 true 时显示「休息倒计时」（距休息结束），不触发二次锁定；
   /// 为 false 时显示「使用倒计时」（距使用限制），结束后触发强制休息。
   Future<void> _showStopwatchWidget({bool inRest = false}) async {
-    // 如果倒计时已经在显示或强制休息处理中，不显示新的
+    // 如果倒计时已经在显示，先验证原生侧 widget 是否真的存在
+    // 修复场景：2 分钟提醒覆盖期间，原生 countdown widget 可能被 MIUI 回收，
+    // 但内存标志 _countdownWidgetShowing 仍为 true → 所有恢复路径被跳过
+    if (_countdownWidgetShowing || _stopwatchWidgetShowing) {
+      try {
+        final isNativeShowing = await OverlayService.isCountdownWidgetShowing();
+        if (!isNativeShowing) {
+          // 原生 widget 已消失，但内存标志仍为 true → 重置标志，允许重新显示
+          print('[UsageMonitor] _showStopwatchWidget: native countdown not showing, resetting flags');
+          _countdownWidgetShowing = false;
+          _stopwatchWidgetShowing = false;
+          _countdownTriggerApp = null;
+          _countdownEnding = false;
+          _overlayManager.onCountdownEnded();
+        }
+      } catch (e) {
+        print('[UsageMonitor] _showStopwatchWidget: native check failed: $e');
+      }
+    }
+
+    // 重新检查（可能已被上面的逻辑重置）
     if (_countdownWidgetShowing || _stopwatchWidgetShowing || _forceRestInProgress) {
       print('[Diag] [W] skip: cd=$_countdownWidgetShowing sw=$_stopwatchWidgetShowing fr=$_forceRestInProgress');
       return;
@@ -364,9 +378,32 @@ class UsageMonitorService {
       await OverlayService.hideCountdownWidget();
       await _clearCountdownState();
 
-      // 去重：如果原生兜底路径已经显示了锁定弹窗，不再重复创建
+      // 原生兜底路径已显示了锁定弹窗（标题"时间结束"），Flutter 侧不再重复创建
+      // 但必须设置防御标志，否则 30 秒轮询中的 _checkForbiddenApp 会重新触发
+      // checkAndShowForbiddenReminder（priority=100），导致原生兜底的 overlay 被替换为
+      // Flutter 侧的 overlay（标题"纹纹提醒你"等），用户看起来像"弹窗刷新/重新计算"
       if (await OverlayService.isOverlayShowing()) {
-        print('[UsageMonitor] Native fallback already showed lock overlay, skip Flutter path');
+        print('[UsageMonitor] Native fallback already showed lock overlay, taking over control');
+
+        // 1. 设置强制休息标志，防止轮询干扰
+        _forceRestInProgress = true;
+
+        // 2. 确保 Flutter 侧的 restEndTime 被正确设置
+        //    原生兜底 overlay 的倒计时 = restSeconds，但 Flutter 侧的 restEndTime 可能还没设置
+        //    （_triggerForcedRestAfterCountdown 没被调用，所以 forceTriggerRest 也没执行）
+        await _continuousUsageService.forceTriggerRest(
+          minTotalDurationSeconds: _ref.read(continuousUsageSettingsProvider).limitMinutes * 60,
+        );
+
+        // 3. 注册全局 overlay 关闭回调，确保 _forceRestInProgress 在用户关闭弹窗后复位
+        OverlayService.setOnGlobalOverlayDismissed(() {
+          unawaited(_onLockOverlayDismissed());
+        });
+
+        // 4. 同步 OverlayStateManager 状态，让优先级机制也能阻止抢占
+        //    原生兜底 overlay 绕过了 OverlayStateManager，需要手动同步
+        _overlayManager.syncStateFromNativeFallback(OverlayState.showingLock);
+
         return;
       }
 
@@ -381,13 +418,26 @@ class UsageMonitorService {
   /// 锁定弹窗关闭后的回调
   ///
   /// 当用户手动关闭锁定弹窗后：
-  /// 1. 复位 _forceRestInProgress 标志
-  /// 2. 重新设置休息结束时间（从关闭时刻开始计算完整休息时长）
-  /// 3. 显示休息倒计时 widget
+  /// 1. 复位 _forceRestInProgress 标志和 OverlayStateManager 状态
+  /// 2. 停用旧会话，让新的使用计时从 0 开始
+  /// 3. 如果仍在使用被监控 app，显示新的使用倒计时 widget
   Future<void> _onLockOverlayDismissed() async {
     print('[UsageMonitor] Lock overlay dismissed by user');
     // 清除全局回调，避免下次误触发
     OverlayService.setOnGlobalOverlayDismissed(() {});
+
+    // === 关键修复 ===
+    // 复位 OverlayStateManager 状态。在路径 A（原生兜底 lock overlay）中，
+    // syncStateFromNativeFallback 将 _state 设为 showingLock，但关闭回调走的是
+    // _onGlobalOverlayDismissed 而不是 OverlayStateManager.onOverlayDismissed，
+    // 导致 _state 仍为 showingLock → _showStopwatchWidget 被守卫阻挡 → widget 不出现。
+    // 在路径 B（Flutter 侧 lock overlay）中，onOverlayDismissed 已将 _state 复位为 idle，
+    // 此处再设一次无害。
+    if (_overlayManager.state == OverlayState.showingLock ||
+        _overlayManager.state == OverlayState.showingReminder) {
+      _overlayManager.onOverlayDismissed('');
+      print('[UsageMonitor] Reset overlay state after lock dismiss (was ${_overlayManager.state})');
+    }
 
     // === 关键逻辑 ===
     // Lock overlay 的倒计时 = restMinutes（用户已经在 lock overlay 上等了完整的休息时间），
@@ -402,7 +452,6 @@ class UsageMonitorService {
     // 2. 重置跟踪状态，让下个轮询周期创建新会话
     _currentSessionApp = null;
     _isSessionActive = false;
-    _lastStopTime = null;
 
     // 3. 复位标志，让轮询可以正常工作
     _forceRestInProgress = false;
@@ -421,40 +470,109 @@ class UsageMonitorService {
     }
   }
 
-  /// 检查是否在休息后隐藏计时器
-  Future<void> _checkHideStopwatchAfterRest(DateTime now, ContinuousUsageSettings settings) async {
-    if (_lastStopTime == null) {
-      return;
-    }
+  /// 检查是否在休息后重置会话（仅重置会话，不控制 widget 隐藏）
+  ///
+  /// 当用户离开监控 app 超过 resetAfterRestSeconds 时，
+  /// 重置连续使用会话（停用旧会话），让下次使用从 0 开始计时。
+  /// widget 的隐藏由 _handleContinuousUsageTransition 中"离开监控 app → 立即隐藏"处理。
+  Future<void> _checkAndResetSessionAfterRest(DateTime now, ContinuousUsageSettings settings) async {
+    // 使用会话的最后活动时间来计算离开时间
+    // （不再使用 _lastStopTime，因为 widget 离开时立即隐藏，不需要延迟机制）
+    final session = await _continuousUsageService.getActiveSession();
+    if (session == null) return;
 
-    // 计算从停止到现在的时间
-    final restDuration = now.difference(_lastStopTime!);
+    // 使用会话的最后活动时间来计算离开时间
+    final lastActivity = session.lastActivityTime;
+    if (lastActivity == null) return;
+
+    final restDuration = now.difference(lastActivity);
     final resetAfterRestSeconds = settings.resetAfterRestSeconds;
 
-    // 如果休息时间超过设定的阈值，隐藏计时器并重置会话
+    // 如果离开时间超过阈值，重置会话（停用旧会话，下次从 0 开始）
     if (restDuration.inSeconds >= resetAfterRestSeconds) {
-      print('[UsageMonitor] Rest duration exceeded threshold, hiding stopwatch and resetting session');
-      
-      // 隐藏计时器
-      await _hideStopwatchWidget();
-      
-      // 重置连续使用会话
+      print('[UsageMonitor] Away duration exceeded threshold, resetting continuous usage session');
       await _resetContinuousSession();
-      
-      // 清除停止时间
-      _lastStopTime = null;
     }
   }
 
   /// 隐藏秒表悬浮窗
+  ///
+  /// 仅隐藏原生 widget 并重置内存标志，不清除 DB 倒计时字段。
+  /// DB 倒计时字段（countdown_started_at / countdown_total_seconds）在以下时机清除：
+  /// - 倒计时自然结束（_handleCountdownEnded）
+  /// - 会话被重置（_resetContinuousSession）
+  /// 这样当用户回到监控 app 时，可以从 DB 恢复倒计时状态。
   Future<void> _hideStopwatchWidget() async {
     if (_stopwatchWidgetShowing || _countdownWidgetShowing) {
+      // [DIAG] 打印调用堆栈，定位 widget 被关闭的原因
+      print('[UsageMonitor] _hideStopwatchWidget called from:');
+      print(StackTrace.current);
       await OverlayService.hideCountdownWidget();
       _stopwatchWidgetShowing = false;
       _countdownWidgetShowing = false;
       _countdownTriggerApp = null;
       _countdownEnding = false;
-      await _clearCountdownState();
+      // 注意：不调用 _clearCountdownState()，保留 DB 中的倒计时字段
+      // 以便用户回到监控 app 时能恢复倒计时
+    }
+  }
+
+  /// 与原生侧同步 widget 状态
+  ///
+  /// Flutter 侧的 _countdownWidgetShowing / _stopwatchWidgetShowing 是内存标志，
+  /// 可能与原生侧的实际状态不同步。例如原生 widget 被系统移除但 onCountdownEnded
+  /// 回调未触发时，Flutter 侧标志仍为 true，导致所有重新显示 widget 的路径被跳过。
+  ///
+  /// 修复：当原生 widget 不在显示但 Flutter 侧认为应该显示时，
+  /// 检查当前前台 app 是否是被监控 app，如果是则尝试恢复 widget，
+  /// 如果不是则重置标志（符合"没使用就消失"的需求）。
+  Future<void> _syncWidgetStateWithNative() async {
+    if (!_countdownWidgetShowing && !_stopwatchWidgetShowing) return;
+
+    try {
+      final isNativeShowing = await OverlayService.isCountdownWidgetShowing();
+      if (!isNativeShowing && (_countdownWidgetShowing || _stopwatchWidgetShowing)) {
+        // 原生 widget 已消失，检查是否应该恢复
+        final currentApp = await UsageStatsService.getCurrentForegroundApp();
+        final monitoredApps = _ref.read(monitoredAppsProvider);
+        final isMonitored = currentApp != null && monitoredApps.isMonitored(currentApp);
+
+        if (isMonitored && !_forceRestInProgress) {
+          // 正在使用被监控 app → 尝试恢复 widget
+          print('[UsageMonitor] Widget state sync: native side not showing, but monitoring app active. '
+              'Attempting to restore widget for $currentApp');
+
+          // 检查是否有 overlay 阻挡恢复（如 2/3 分钟提醒弹窗）
+          // 如果有，不重置标志，等下次轮询再尝试恢复
+          if (_overlayManager.state == OverlayState.showingLock ||
+              _overlayManager.state == OverlayState.showingReminder) {
+            print('[UsageMonitor] Widget state sync: overlay active (${_overlayManager.state}), '
+                'deferring restore to next poll');
+            return; // 保留标志，下次轮询再尝试
+          }
+
+          // 重置内存标志，让 _showStopwatchWidget 可以重新显示
+          _countdownWidgetShowing = false;
+          _stopwatchWidgetShowing = false;
+          _countdownTriggerApp = null;
+          _countdownEnding = false;
+          _overlayManager.onCountdownEnded();
+          // 不清除 DB 倒计时字段，让恢复逻辑能从 DB 读取倒计时状态
+          // 尝试恢复显示
+          await _showStopwatchWidget(inRest: false);
+        } else {
+          // 不在使用被监控 app → 重置标志（符合"没使用就消失"）
+          print('[UsageMonitor] Widget state sync: native side not showing, and not using monitored app. '
+              'Resetting flags (cd=$_countdownWidgetShowing, sw=$_stopwatchWidgetShowing)');
+          _countdownWidgetShowing = false;
+          _stopwatchWidgetShowing = false;
+          _countdownTriggerApp = null;
+          _countdownEnding = false;
+          _overlayManager.onCountdownEnded();
+        }
+      }
+    } catch (e) {
+      print('[UsageMonitor] Widget state sync failed: $e');
     }
   }
 
@@ -544,6 +662,13 @@ class UsageMonitorService {
     try {
       final now = DateTime.now();
       final today = DailyStats.formatDate(now);
+
+      // === 同步 widget 状态 ===
+      // Flutter 侧的 _countdownWidgetShowing / _stopwatchWidgetShowing 是内存标志，
+      // 可能与原生侧的实际状态不同步（原生 widget 被系统移除但回调未触发）。
+      // 如果原生侧 widget 已消失但 Flutter 侧标志仍为 true，所有重新显示 widget
+      // 的路径都被跳过 → widget 永远不再出现。每次轮询与原生侧同步。
+      await _syncWidgetStateWithNative();
 
       // === 跨天重置 ===
       if (_lastPollDate != null && _lastPollDate != today) {
@@ -911,8 +1036,13 @@ class UsageMonitorService {
 
     if (isBlocked && _lastForegroundApp != null) {
       // 触发禁止时段锁定
-      print('[UsageMonitor] 禁止时段检测到！阻止应用: $_lastForegroundApp');
-      await _reminderService.showForbiddenTimeReminder('$start - $end');
+      // 注意：OverlayStateManager 的优先级机制会阻止低优先级抢占 lock overlay
+      if (_forceRestInProgress) {
+        print('[UsageMonitor] 强制休息中，跳过禁止时段弹窗');
+      } else {
+        print('[UsageMonitor] 禁止时段检测到！阻止应用: $_lastForegroundApp');
+        await _reminderService.showForbiddenTimeReminder('$start - $end');
+      }
     } else {
       // 如果不在禁用时段，且没有锁定弹窗显示，才隐藏提醒
       // 避免关闭由其他规则（如连续使用强制休息）触发的锁定弹窗
@@ -928,6 +1058,13 @@ class UsageMonitorService {
     final restStatus = await _continuousUsageService.getStatus();
     if (restStatus == ContinuousUsageStatus.inRest) {
       print('[UsageMonitor] 强制休息中，跳过 _checkForbiddenApp 弹窗');
+      return;
+    }
+
+    // 强制休息处理中，不重复弹窗（避免 lock overlay 被轮询重新触发）
+    // 注意：不检查 _overlayManager.state，让 OverlayStateManager 的优先级机制处理抢占
+    if (_forceRestInProgress) {
+      print('[UsageMonitor] 强制休息处理中，跳过 _checkForbiddenApp 弹窗');
       return;
     }
 
@@ -994,26 +1131,13 @@ class UsageMonitorService {
       final currentRemaining = limitSeconds - (session?.totalDurationSeconds ?? 0);
       final countdownSeconds = currentRemaining.clamp(0, 5 * 60).toInt();
 
-      _countdownWidgetShowing = true;
-      _stopwatchWidgetShowing = false;
+      // 通过统一入口显示 countdown widget，而不是直接调用原生层
+      // 这样所有守卫逻辑和状态管理都在同一个地方
       _countdownTriggerApp = currentApp;
-      await OverlayService.showCountdownWidget(
-        totalSeconds: countdownSeconds,
-        onEnded: () {
-          print('[UsageMonitor] 倒计时悬浮窗结束，触发强制休息');
-          unawaited(_handleCountdownEnded(currentApp));
-        },
-        onAlert: (alertType) {
-          _handleCountdownAlert(currentApp, alertType);
-        },
-        lockTitle: '时间结束',
-        lockMessage: '连续使用时间已达限制',
-        lockDurationSeconds: settings.restSeconds,
-        lockPackageName: currentApp,
+      await _showCountdownFromRemaining(
+        remainingSeconds: countdownSeconds,
+        isRestCountdown: false,
       );
-
-      // 持久化倒计时状态，让原生侧在进程被杀后能按挂钟恢复
-      await _persistCountdownState(countdownSeconds);
 
       print('[UsageMonitor] 已显示倒计时悬浮窗，${countdownSeconds ~/ 60}分钟');
     }

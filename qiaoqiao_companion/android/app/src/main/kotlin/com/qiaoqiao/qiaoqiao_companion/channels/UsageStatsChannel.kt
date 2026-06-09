@@ -389,7 +389,9 @@ class UsageStatsChannel(private val context: Context) : MethodChannel.MethodCall
                 as UsageStatsManager
 
         val endTime = System.currentTimeMillis()
-        val startTime = endTime - 30_000L
+        // 扩大查询窗口到 60 秒，确保能捕获到长时间在前台的 app
+        // 之前 30 秒窗口会导致已经在前台运行的 app 没有新的 ACTIVITY_RESUMED 事件而被漏检
+        val startTime = endTime - 60_000L
 
         val usageEvents = usageStatsManager.queryEvents(startTime, endTime)
         var lastResumedPackage: String? = null
@@ -422,14 +424,44 @@ class UsageStatsChannel(private val context: Context) : MethodChannel.MethodCall
             }
         }
 
-        android.util.Log.d("UsageStatsChannel", "getCurrentForegroundApp: lastResumedPackage=$lastResumedPackage, lastResumedTime=$lastResumedTime, lastPausedPackage=$lastPausedPackage, lastPausedTime=$lastPausedTime")
-
+        // 判断前台 app：最后一次 resume 的 app 且没有被更新的 pause 覆盖
+        var result: String? = null
         if (lastResumedPackage != null &&
             (lastPausedPackage != lastResumedPackage || lastPausedTime < lastResumedTime)) {
-            return lastResumedPackage
+            result = lastResumedPackage
         }
 
-        return null
+        // 兜底：如果事件查询没有找到前台 app（比如 app 已在前台运行很久，近期没有状态变化事件），
+        // 使用 queryUsageStats 获取最近使用时间最长的 app 作为前台 app
+        if (result == null || result == context.packageName) {
+            try {
+                val stats = usageStatsManager.queryUsageStats(
+                    UsageStatsManager.INTERVAL_BEST,
+                    endTime - 10_000L,  // 最近 10 秒
+                    endTime
+                )
+                var bestPackage: String? = null
+                var bestLastTime: Long = 0
+                for (stat in stats) {
+                    val pkg = stat.packageName
+                    if (pkg == context.packageName || isSystemUiApp(pkg)) continue
+                    if (stat.lastTimeUsed > bestLastTime) {
+                        bestLastTime = stat.lastTimeUsed
+                        bestPackage = pkg
+                    }
+                }
+                if (bestPackage != null && bestLastTime > endTime - 60_000L) {
+                    result = bestPackage
+                    android.util.Log.d("UsageStatsChannel", "getCurrentForegroundApp fallback: using queryUsageStats, result=$bestPackage, lastTimeUsed=$bestLastTime")
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("UsageStatsChannel", "queryUsageStats fallback failed", e)
+            }
+        }
+
+        android.util.Log.d("UsageStatsChannel", "getCurrentForegroundApp: result=$result, lastResumedPackage=$lastResumedPackage, lastResumedTime=$lastResumedTime, lastPausedPackage=$lastPausedPackage, lastPausedTime=$lastPausedTime")
+
+        return result
     }
 
     /**

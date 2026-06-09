@@ -630,13 +630,15 @@ class NativeOverlayManager(private val context: Context) {
 
                 countdownTextTime?.text = formatCountdownTime(remainingSec.toLong())
 
-                if (!countdownAlert3minFired && remainingSec <= 180 && remainingSec > 120) {
+                // 3分钟提醒：仅当总时长 > 3分钟时触发（避免短限制在开始时误触发）
+                if (!countdownAlert3minFired && startSeconds > 180 && remainingSec <= 180 && remainingSec > 120) {
                     countdownAlert3minFired = true
                     try { countdownAlert3min?.run() } catch (e: Exception) {
                         Log.e(TAG, "onAlert3min failed", e)
                     }
                 }
-                if (!countdownAlert2minFired && remainingSec <= 120 && remainingSec > 60) {
+                // 2分钟提醒：仅当总时长 > 2分钟时触发
+                if (!countdownAlert2minFired && startSeconds > 120 && remainingSec <= 120 && remainingSec > 60) {
                     countdownAlert2minFired = true
                     try { countdownAlert2min?.run() } catch (e: Exception) {
                         Log.e(TAG, "onAlert2min failed", e)

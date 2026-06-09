@@ -116,14 +116,13 @@ class OverlayStateManager {
       // 优先级判断
       if (_state != OverlayState.idle && _currentRequest != null) {
         if (request.priority <= _currentRequest!.priority) {
-          // 同级或低优先级 → 丢弃（lock 类型的 hard limit 例外）
-          if (!_isHardLimit(request)) {
-            print('[OverlayState] Lower/equal priority request dropped: ${request.id} '
-                '(current: ${_currentRequest!.priority}, new: ${request.priority})');
-            return false;
-          }
+          // 同级或低优先级 → 一律丢弃（不管是否 hard limit）
+          // 同级 hard limit 互相抢占只会导致相同的弹窗被重新创建（倒计时被重置）
+          print('[OverlayState] Lower/equal priority request dropped: ${request.id} '
+              '(current: ${_currentRequest!.priority}, new: ${request.priority})');
+          return false;
         }
-        // 高优先级或 hard limit → 抢占（先关闭当前弹窗）
+        // 高优先级 → 抢占（先关闭当前弹窗）
         await _dismissCurrentInternal();
       }
 
@@ -188,6 +187,19 @@ class OverlayStateManager {
     } finally {
       _releaseLock();
     }
+  }
+
+  /// 原生兜底路径创建 overlay 后，同步 OverlayStateManager 的内部状态
+  ///
+  /// 原生兜底 overlay（countdown widget 结束后自动创建的 lock overlay）
+  /// 绕过了 OverlayStateManager 的 requestOverlay 流程，导致 _state 仍为 idle。
+  /// 这使得后续轮询中的弹窗请求绕过优先级检查，直接替换原生兜底的 overlay。
+  /// 调用此方法将 _state 同步为实际状态，让优先级机制正常工作。
+  void syncStateFromNativeFallback(OverlayState nativeState) {
+    _state = nativeState;
+    _currentRequest = null; // 原生兜底路径没有 OverlayRequest
+    _lastShownAt = DateTime.now();
+    print('[OverlayState] Synced state from native fallback: $nativeState');
   }
 
   /// 检查是否有 overlay 在显示（不含 countdown widget）
@@ -297,10 +309,6 @@ class OverlayStateManager {
 
     return _currentRequest!.type == request.type &&
         _currentRequest!.packageName == request.packageName;
-  }
-
-  bool _isHardLimit(OverlayRequest request) {
-    return request.priority >= OverlayPriority.timeBlockLock;
   }
 
   Future<void> _acquireLock() async {

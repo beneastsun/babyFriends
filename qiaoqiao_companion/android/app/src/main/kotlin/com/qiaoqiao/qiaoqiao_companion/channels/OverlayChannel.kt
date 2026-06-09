@@ -812,13 +812,13 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
 
                 textView.text = formatCountdownTime(remainingSec)
 
-                // 在3分钟时通知 Flutter
-                if (remainingSec <= 180 && remainingSec > 0 && !notified3min) {
+                // 在3分钟时通知 Flutter（仅当总时长 > 3分钟时触发，避免短限制在开始时误触发）
+                if (totalSeconds > 180 && remainingSec <= 180 && remainingSec > 0 && !notified3min) {
                     notified3min = true
                     try { notifyCountdownAlert("3min") } catch (_: Exception) { }
                 }
-                // 在2分钟时通知 Flutter
-                if (remainingSec <= 120 && remainingSec > 0 && !notified2min) {
+                // 在2分钟时通知 Flutter（仅当总时长 > 2分钟时触发）
+                if (totalSeconds > 120 && remainingSec <= 120 && remainingSec > 0 && !notified2min) {
                     notified2min = true
                     try { notifyCountdownAlert("2min") } catch (_: Exception) { }
                 }
