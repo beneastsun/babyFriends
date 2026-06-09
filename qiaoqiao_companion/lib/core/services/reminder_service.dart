@@ -180,6 +180,18 @@ class ReminderService {
     await _overlayManager.dismissCurrent();
   }
 
+  /// 隐藏提醒，但不关闭 lock 类型的弹窗
+  ///
+  /// 锁定弹窗（强制休息、时段限制等）只能由用户手动关闭，
+  /// 不应被轮询中的规则检查自动关闭。
+  Future<void> hideReminderUnlessLock() async {
+    if (_overlayManager.state == OverlayState.showingLock) {
+      print('[ReminderService] Lock overlay active, skip hide');
+      return;
+    }
+    await _overlayManager.dismissCurrent();
+  }
+
   /// 检查并显示禁用app提醒
   ///
   /// [ruleType] 规则类型，所有规则类型每次都弹窗，不受冷却间隔限制：

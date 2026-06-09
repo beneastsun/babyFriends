@@ -11,8 +11,6 @@ import 'package:qiaoqiao_companion/core/services/reminder_service.dart';
 import 'package:qiaoqiao_companion/core/services/rule_checker_service.dart';
 import 'package:qiaoqiao_companion/shared/models/models.dart';
 import 'package:qiaoqiao_companion/shared/models/hourly_usage_stats.dart' as hourly_model;
-import 'package:qiaoqiao_companion/shared/providers/filtered_app_usage_provider.dart';
-import 'package:qiaoqiao_companion/shared/providers/hourly_usage_provider.dart';
 import 'package:qiaoqiao_companion/shared/providers/monitored_apps_provider.dart';
 import 'package:qiaoqiao_companion/shared/providers/today_usage_provider.dart';
 import 'package:qiaoqiao_companion/shared/providers/continuous_usage_provider.dart';
@@ -38,6 +36,7 @@ class UsageMonitorService {
   final Ref _ref;
 
   Timer? _monitorTimer;
+  Timer? _fullSyncTimer;
   String? _lastForegroundApp;
   bool _isMonitoring = false;
   bool _syncInProgress = false;
@@ -63,7 +62,7 @@ class UsageMonitorService {
   DateTime? _lastStopTime; // 上次停止使用监控应用的时间
 
   /// 监控间隔（秒）- 从系统同步数据的间隔
-  static const int monitorIntervalSeconds = 5;
+  static const int monitorIntervalSeconds = 30;
 
   UsageMonitorService(
     this._database,
@@ -83,13 +82,21 @@ class UsageMonitorService {
     if (_isMonitoring) return;
 
     _isMonitoring = true;
+    // 轻量轮询定时器（30秒）：前台应用检测 + 连续使用跟踪 + 规则检查
     _monitorTimer = Timer.periodic(
       const Duration(seconds: monitorIntervalSeconds),
       (_) => _syncAndCheck(),
     );
+    // 全量同步定时器（5分钟）：从系统同步完整数据 + 更新 Provider
+    _fullSyncTimer = Timer.periodic(
+      const Duration(minutes: 5),
+      (_) => refreshTodayUsage(),
+    );
 
-    // 立即执行一次
+    // 立即执行一次轻量轮询
     _syncAndCheck();
+    // 立即执行一次全量同步
+    refreshTodayUsage();
   }
 
   /// 停止监控
@@ -106,6 +113,8 @@ class UsageMonitorService {
 
     _monitorTimer?.cancel();
     _monitorTimer = null;
+    _fullSyncTimer?.cancel();
+    _fullSyncTimer = null;
     _isMonitoring = false;
     _currentSessionApp = null;
     _isSessionActive = false;
@@ -165,8 +174,12 @@ class UsageMonitorService {
       _currentSessionApp = currentApp;
       _isSessionActive = true;
 
-      // 显示秒表悬浮窗（按 inRest 切换显示模式）
-      await _showStopwatchWidget(inRest: inRest);
+      // 如果 session 状态是 atLimit，跳过 widget 显示（强制休息流程会处理）
+      if (status == ContinuousUsageStatus.atLimit && !inRest) {
+        print('[UsageMonitor] Session atLimit, skip stopwatch widget (waiting for forced rest)');
+      } else {
+        await _showStopwatchWidget(inRest: inRest);
+      }
 
       // 重置停止时间
       _lastStopTime = null;
@@ -199,6 +212,14 @@ class UsageMonitorService {
     // 如果倒计时已经在显示或强制休息处理中，不显示新的
     if (_countdownWidgetShowing || _stopwatchWidgetShowing || _forceRestInProgress) {
       print('[Diag] [W] skip: cd=$_countdownWidgetShowing sw=$_stopwatchWidgetShowing fr=$_forceRestInProgress');
+      return;
+    }
+
+    // 锁定弹窗正在显示时，不显示右上角 widget
+    // 弹窗关闭后 _forceRestInProgress 复位，widget 方能出现
+    if (_overlayManager.state == OverlayState.showingLock ||
+        _overlayManager.state == OverlayState.showingReminder) {
+      print('[Diag] [W] skip: overlay active (state=${_overlayManager.state})');
       return;
     }
 
@@ -357,6 +378,49 @@ class UsageMonitorService {
     }
   }
 
+  /// 锁定弹窗关闭后的回调
+  ///
+  /// 当用户手动关闭锁定弹窗后：
+  /// 1. 复位 _forceRestInProgress 标志
+  /// 2. 重新设置休息结束时间（从关闭时刻开始计算完整休息时长）
+  /// 3. 显示休息倒计时 widget
+  Future<void> _onLockOverlayDismissed() async {
+    print('[UsageMonitor] Lock overlay dismissed by user');
+    // 清除全局回调，避免下次误触发
+    OverlayService.setOnGlobalOverlayDismissed(() {});
+
+    // === 关键逻辑 ===
+    // Lock overlay 的倒计时 = restMinutes（用户已经在 lock overlay 上等了完整的休息时间），
+    // 所以用户点击"知道了"时，休息时间已过。此时不应再显示休息倒计时 widget，
+    // 而应停用旧会话，让新的使用计时从 0 开始。
+    //
+    // 1. 先停用旧会话（休息已结束），让下次 onAppStarted 创建新会话从 0 开始
+    //    在 _forceRestInProgress = true 期间操作，防止轮询干扰
+    await _continuousUsageService.deactivateActiveSession();
+    print('[UsageMonitor] Session deactivated after lock dismiss, fresh start');
+
+    // 2. 重置跟踪状态，让下个轮询周期创建新会话
+    _currentSessionApp = null;
+    _isSessionActive = false;
+    _lastStopTime = null;
+
+    // 3. 复位标志，让轮询可以正常工作
+    _forceRestInProgress = false;
+
+    // 4. 检查当前前台应用是否是被监控的应用，如果是，立即显示使用倒计时
+    final currentApp = await UsageStatsService.getCurrentForegroundApp();
+    final monitoredApps = _ref.read(monitoredAppsProvider);
+    if (currentApp != null && monitoredApps.isMonitored(currentApp)) {
+      // 创建新会话并显示使用倒计时
+      // 先设置 _currentSessionApp，防止轮询重复创建会话
+      _currentSessionApp = currentApp;
+      _isSessionActive = true;
+      await _continuousUsageService.onAppStarted(currentApp);
+      print('[UsageMonitor] Lock dismissed, showing fresh usage countdown for $currentApp');
+      await _showStopwatchWidget(inRest: false);
+    }
+  }
+
   /// 检查是否在休息后隐藏计时器
   Future<void> _checkHideStopwatchAfterRest(DateTime now, ContinuousUsageSettings settings) async {
     if (_lastStopTime == null) {
@@ -497,7 +561,14 @@ class UsageMonitorService {
       await _continuousUsageService.restoreSession();
 
       // === 检查休息是否已结束（结束后停用旧会话，让新会话从0开始）===
-      await _continuousUsageService.checkRestEnded();
+      // 关键：当 _forceRestInProgress = true 时，跳过 checkRestEnded()！
+      // 原因：lock overlay 显示期间，restEndTime 可能已经过期（因为 lock overlay 的
+      // 倒计时与 restEndTime 大致同时到期），如果此时 checkRestEnded() 停用会话，
+      // 用户点击"知道了"后 _onLockOverlayDismissed 会因 getActiveSession()=null
+      // 而提前 return，导致休息倒计时 widget 无法显示。
+      if (!_forceRestInProgress) {
+        await _continuousUsageService.checkRestEnded();
+      }
 
       // 如果会话被停用，重置跟踪状态（让接下来的 onAppStarted 创建新会话）
       final activeSession = await _continuousUsageService.getActiveSession();
@@ -515,8 +586,9 @@ class UsageMonitorService {
       }
       _lastPollTime = now;
 
-      // 2. 同步系统数据
-      await refreshTodayUsage();
+      // 2. 轻量轮询不刷新今日使用数据的 Provider（减少 widget 重建频率）
+      // Provider 刷新由 5 分钟全量同步定时器 refreshTodayUsage() 负责
+      // TodayUsageNotifier 自身也有 30 秒自动刷新机制，无需在此重复调用
 
       // 3. 检查规则
       await _checkRules();
@@ -619,12 +691,8 @@ class UsageMonitorService {
     List<UsageStats> systemStats,
     Map<String, AppCategory> categoryMap,
   ) async {
-    // 先清除今日旧记录
-    final deletedCount = await _appUsageDao.deleteByDate(date);
-    print('[UsageMonitor] Deleted $deletedCount old records for $date');
-
-    // 插入新的使用记录
-    int insertedCount = 0;
+    // 增量更新：检查每个应用是否存在，存在则更新，不存在则插入
+    int syncedCount = 0;
     for (final stat in systemStats) {
       final seconds = stat.totalTimeInForeground ~/ 1000;
       if (seconds <= 0) continue;
@@ -633,21 +701,31 @@ class UsageMonitorService {
       final category = categoryMap[packageName] ?? await _getAppCategory(packageName);
       final appName = stat.appName ?? packageName;
 
-      // 创建汇总记录（今日该应用的总使用时间）
-      final record = AppUsageRecord(
-        packageName: packageName,
-        appName: appName,
-        category: category,
-        startTime: DateTime.fromMillisecondsSinceEpoch(stat.firstTimeStamp),
-        endTime: DateTime.fromMillisecondsSinceEpoch(stat.lastTimeStamp),
-        durationSeconds: seconds,
-        date: date,
-      );
-
-      await _appUsageDao.insert(record);
-      insertedCount++;
+      // 检查是否已有记录
+      final existing = await _appUsageDao.getByPackageAndDate(packageName, date);
+      if (existing.isNotEmpty) {
+        // 更新已有记录
+        final record = existing.first.copyWith(
+          durationSeconds: seconds,
+          endTime: DateTime.fromMillisecondsSinceEpoch(stat.lastTimeStamp),
+        );
+        await _appUsageDao.update(record);
+      } else {
+        // 插入新记录
+        final record = AppUsageRecord(
+          packageName: packageName,
+          appName: appName,
+          category: category,
+          startTime: DateTime.fromMillisecondsSinceEpoch(stat.firstTimeStamp),
+          endTime: DateTime.fromMillisecondsSinceEpoch(stat.lastTimeStamp),
+          durationSeconds: seconds,
+          date: date,
+        );
+        await _appUsageDao.insertOrUpdate(record);
+      }
+      syncedCount++;
     }
-    print('[UsageMonitor] Inserted $insertedCount records for $date');
+    print('[UsageMonitor] Synced $syncedCount app records for $date');
   }
 
   /// 同步小时级使用数据到数据库
@@ -683,8 +761,6 @@ class UsageMonitorService {
       );
     }).toList();
 
-    // 先清除今日旧的小时级数据
-    await _hourlyUsageDao.deleteByDate(date);
 
     // 批量插入新数据
     await _hourlyUsageDao.upsertBatch(statsList);
@@ -694,7 +770,7 @@ class UsageMonitorService {
 
   /// 获取应用分类
   Future<AppCategory> _getAppCategory(String packageName) async {
-    final record = await AppCategoryDao(_database).getByPackageName(packageName);
+    final record = await _appCategoryDao.getByPackageName(packageName);
     return record?.category ?? AppCategory.other;
   }
 
@@ -838,8 +914,11 @@ class UsageMonitorService {
       print('[UsageMonitor] 禁止时段检测到！阻止应用: $_lastForegroundApp');
       await _reminderService.showForbiddenTimeReminder('$start - $end');
     } else {
-      // 如果不在禁用时段，尝试隐藏锁定界面
-      await _reminderService.hideReminder();
+      // 如果不在禁用时段，且没有锁定弹窗显示，才隐藏提醒
+      // 避免关闭由其他规则（如连续使用强制休息）触发的锁定弹窗
+      if (_overlayManager.state != OverlayState.showingLock && !_forceRestInProgress) {
+        await _reminderService.hideReminderUnlessLock();
+      }
     }
   }
 
@@ -880,10 +959,13 @@ class UsageMonitorService {
     } else if (_forceRestInProgress) {
       // 强制休息处理中，不干扰由 _triggerForcedRestAfterCountdown 显示的弹窗
       print('[UsageMonitor] 强制休息处理中，保留弹窗');
+    } else if (_overlayManager.state == OverlayState.showingLock) {
+      // 锁定弹窗正在显示中，不应被 hideReminder 关闭
+      print('[UsageMonitor] Lock overlay active, skip hideReminder');
     } else {
       // app被允许使用且剩余时间充足，隐藏提醒（用户切换到了非受限应用或时间充足）
       print('[UsageMonitor] app被允许使用: $packageName，隐藏提醒');
-      await _reminderService.hideReminder();
+      await _reminderService.hideReminderUnlessLock();
     }
   }
 
@@ -980,6 +1062,12 @@ class UsageMonitorService {
         minTotalDurationSeconds: settings.limitMinutes * 60,
       );
 
+      // 用户关闭锁定弹窗后，立即显示休息倒计时 widget
+      // 同时在回调中重新设置 restEndTime（从关闭时刻计算完整休息时长）
+      OverlayService.setOnGlobalOverlayDismissed(() {
+        unawaited(_onLockOverlayDismissed());
+      });
+
       await _reminderService.checkAndShowForbiddenReminder(
         packageName: currentApp,
         reason: '连续使用时间已达限制，需要休息 ${settings.restMinutes} 分钟！',
@@ -987,9 +1075,12 @@ class UsageMonitorService {
         durationSeconds: settings.restSeconds,
       );
       print('[UsageMonitor] 倒计时结束，已触发强制休息弹窗');
-    } finally {
+    } catch (e, st) {
+      print('[UsageMonitor] _triggerForcedRestAfterCountdown failed: $e\n$st');
       _forceRestInProgress = false;
     }
+    // 注意：不在 finally 中复位 _forceRestInProgress
+    // 改为在 _onLockOverlayDismissed 中复位，确保锁定弹窗显示期间不会被轮询干扰
   }
 
   /// 检查并触发强制休息
@@ -1016,24 +1107,33 @@ class UsageMonitorService {
       try {
         final settings = _ref.read(continuousUsageSettingsProvider);
 
+        // 用户关闭锁定弹窗后，立即显示休息倒计时 widget
+        OverlayService.setOnGlobalOverlayDismissed(() {
+          unawaited(_onLockOverlayDismissed());
+        });
+
         await _reminderService.checkAndShowForbiddenReminder(
           packageName: currentApp,
           reason: '连续使用时间已达限制，需要休息 ${settings.restMinutes} 分钟！',
           ruleType: 'continuous_usage_limit',
-          durationSeconds: settings.restSeconds, // 传递休息时长（秒）
+          durationSeconds: settings.restSeconds,
         );
         print('[UsageMonitor] 触发强制休息');
-      } finally {
+      } catch (e, st) {
+        print('[UsageMonitor] _checkAndTriggerRest failed: $e\n$st');
         _forceRestInProgress = false;
       }
+      // 注意：不在 finally 中复位 _forceRestInProgress
+      // 改为在 _onLockOverlayDismissed 中复位
     }
   }
 
   Future<void> refreshTodayUsage() async {
     await _syncTodayUsageFromSystem();
     await _ref.read(todayUsageProvider.notifier).loadToday();
-    _ref.invalidate(todayHourlyTimelineNotifierProvider);
-    _ref.invalidate(filteredAppUsageProvider);
+    // 轻量刷新：使用 invalidate 仅在必要时触发（如页面正在显示时）
+    // 不再每5分钟强制 invalidate 所有 Provider，避免页面闪烁和卡顿
+    // hourly 和 filtered provider 有自身独立的刷新机制
   }
 
   /// 是否正在监控

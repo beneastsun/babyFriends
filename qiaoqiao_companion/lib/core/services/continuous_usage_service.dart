@@ -246,6 +246,23 @@ class ContinuousUsageService {
     return session?.remainingRestSeconds;
   }
 
+  /// 重新设置休息结束时间（从当前时刻开始计算完整的休息时长）
+  ///
+  /// 在用户手动关闭锁定弹窗后调用，确保休息时间从用户确认后开始计算，
+  /// 而不是从倒计时结束时计算。这覆盖了 forceTriggerRest 中设置的 restEndTime。
+  Future<void> resetRestEndTimeFromNow(int restMinutes) async {
+    final now = DateTime.now();
+    final session = await _sessionDao.getActiveSession(_today());
+    if (session == null) return;
+
+    final restEndTime = now.add(Duration(minutes: restMinutes));
+    await _sessionDao.update(session.copyWith(
+      restEndTime: restEndTime,
+      updatedAt: now,
+    ));
+    print('[ContinuousUsage] Rest end time reset to: $restEndTime (from now, ${restMinutes}min)');
+  }
+
   /// 检查休息是否已结束，若已结束则停用会话让新会话重新开始
   Future<void> checkRestEnded() async {
     final session = await _sessionDao.getActiveSession(_today());
@@ -264,6 +281,18 @@ class ContinuousUsageService {
   /// 对外暴露会话更新能力（用于 UsageMonitorService 持久化倒计时状态等）。
   Future<void> updateSession(ContinuousSession session) async {
     await _sessionDao.update(session);
+  }
+
+  /// 直接停用当前活跃会话
+  ///
+  /// 在用户关闭 lock overlay 后调用：用户已在 lock overlay 上等完整个休息时间，
+  /// 旧会话的使命已完成，停用它让新会话从 0 开始。
+  Future<void> deactivateActiveSession() async {
+    final session = await _sessionDao.getActiveSession(_today());
+    if (session != null) {
+      await _sessionDao.deactivate(session.id!);
+      print('[ContinuousUsage] Active session deactivated (id=${session.id})');
+    }
   }
 }
 

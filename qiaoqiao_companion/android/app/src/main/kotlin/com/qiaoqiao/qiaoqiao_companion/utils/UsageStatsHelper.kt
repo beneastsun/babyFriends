@@ -46,7 +46,7 @@ object UsageStatsHelper {
                 as UsageStatsManager
 
         val endTime = System.currentTimeMillis()
-        val startTime = endTime - 1000L * 60 * 60 * 2
+        val startTime = endTime - 30_000L
 
         val usageEvents = usageStatsManager.queryEvents(startTime, endTime)
         var lastResumedPackage: String? = null

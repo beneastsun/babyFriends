@@ -92,7 +92,7 @@ class OverlayStateManager {
   DateTime? _lastShownAt;
 
   /// 串行化锁，防止并发请求竞态
-  Completer<void>? _lock;
+  final List<Completer<void>> _lockQueue = [];
 
   /// 去重窗口（毫秒），同一弹窗在此时间内不重复显示
   static const int _dedupWindowMs = 2000;
@@ -304,16 +304,20 @@ class OverlayStateManager {
   }
 
   Future<void> _acquireLock() async {
-    while (_lock != null) {
-      await _lock!.future;
+    final completer = Completer<void>();
+    _lockQueue.add(completer);
+    if (_lockQueue.length > 1) {
+      await completer.future;
     }
-    _lock = Completer<void>();
   }
 
   void _releaseLock() {
-    final completer = _lock;
-    _lock = null;
-    completer?.complete();
+    if (_lockQueue.isNotEmpty) {
+      _lockQueue.removeAt(0);
+      if (_lockQueue.isNotEmpty) {
+        _lockQueue.first.complete();
+      }
+    }
   }
 }
 

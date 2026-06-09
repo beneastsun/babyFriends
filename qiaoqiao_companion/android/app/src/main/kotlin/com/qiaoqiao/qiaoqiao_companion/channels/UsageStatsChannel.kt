@@ -212,7 +212,6 @@ class UsageStatsChannel(private val context: Context) : MethodChannel.MethodCall
                 "lastTimeUsed" to (lastUseTime[packageName] ?: 0L),
                 "firstTimeStamp" to (firstUseTime[packageName] ?: 0L),
                 "lastTimeStamp" to (lastUseTime[packageName] ?: 0L),
-                "appIcon" to getAppIconBase64(packageName)
             ))
         }
         android.util.Log.d("UsageStatsChannel", "=== END CALCULATED (${result.size} apps) ===")
@@ -390,7 +389,7 @@ class UsageStatsChannel(private val context: Context) : MethodChannel.MethodCall
                 as UsageStatsManager
 
         val endTime = System.currentTimeMillis()
-        val startTime = endTime - 1000L * 60 * 60 * 2
+        val startTime = endTime - 30_000L
 
         val usageEvents = usageStatsManager.queryEvents(startTime, endTime)
         var lastResumedPackage: String? = null
@@ -447,7 +446,6 @@ class UsageStatsChannel(private val context: Context) : MethodChannel.MethodCall
                     "packageName" to appInfo.packageName,
                     "appName" to packageManager.getApplicationLabel(appInfo).toString(),
                     "isSystemApp" to (appInfo.flags and ApplicationInfo.FLAG_SYSTEM != 0),
-                    "appIcon" to getAppIconBase64(appInfo.packageName)
                 )
             }
     }

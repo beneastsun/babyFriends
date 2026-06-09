@@ -28,6 +28,15 @@ class OverlayService {
   /// 关闭回调（用于禁用app提醒）
   static void Function(String packageName)? _onOverlayDismissed;
 
+  /// 全局覆盖层关闭回调（无论由谁创建的覆盖层，关闭时都会触发）
+  /// 用于在锁定弹窗关闭后，触发 Flutter 侧恢复休息倒计时 widget
+  static VoidCallback? _onGlobalOverlayDismissed;
+
+  /// 注册全局覆盖层关闭回调
+  static void setOnGlobalOverlayDismissed(VoidCallback callback) {
+    _onGlobalOverlayDismissed = callback;
+  }
+
   /// 倒计时结束回调
   static void Function()? _onCountdownEnded;
 
@@ -41,6 +50,8 @@ class OverlayService {
         final packageName = call.arguments['packageName'] as String? ?? '';
         _onOverlayDismissed?.call(packageName);
         _onOverlayDismissed = null;
+        // 全局回调：无论覆盖层由谁创建，关闭时都通知
+        _onGlobalOverlayDismissed?.call();
       } else if (call.method == 'onCountdownEnded') {
         _onCountdownEnded?.call();
         _onCountdownEnded = null;
