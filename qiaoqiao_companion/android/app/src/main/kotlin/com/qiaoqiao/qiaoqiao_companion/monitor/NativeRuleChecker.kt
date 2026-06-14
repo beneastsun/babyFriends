@@ -1,6 +1,7 @@
 package com.qiaoqiao.qiaoqiao_companion.monitor
 
 import android.util.Log
+import com.qiaoqiao.qiaoqiao_companion.monitor.NativeRuleRepository.ContinuousSession
 import org.json.JSONArray
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -147,7 +148,26 @@ class NativeRuleChecker(private val repository: NativeRuleRepository) {
         val restRemaining = repository.getActiveRestRemainingSeconds()
         if (restRemaining > 0) return null // 强制休息由 checkApp 开头的 rest 分支处理
 
-        var session = repository.getActiveContinuousSession() ?: return null
+        var session = repository.getActiveContinuousSession()
+        if (session == null) {
+            // Flutter 死亡且无活跃session → 创建新session
+            // 场景：Flutter 被杀前还没来得及创建 session（如刚打开监控 app 就被划掉）
+            if (com.qiaoqiao.qiaoqiao_companion.MainActivity.isFlutterAlive) {
+                return null // Flutter 存活时由 Flutter 侧创建 session
+            }
+            val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+            session = ContinuousSession(
+                sessionDate = today,
+                startTime = now,
+                lastActivityTime = now,
+                createdAt = now,
+                updatedAt = now
+            )
+            val id = repository.insertContinuousSession(session)
+            if (id == null) return null
+            session = session.copy(id = id)
+            Log.d(TAG, "Created new session in native fallback: id=$id")
+        }
 
         // ===== 预检：会话有已过期的 restEndTime → 休息已结束 =====
         // Flutter 侧的 checkRestEnded() 可能在异步提交中，原生侧先读取到旧数据。
@@ -204,7 +224,16 @@ class NativeRuleChecker(private val repository: NativeRuleRepository) {
         val lastActivity = session.lastActivityTime ?: return null
 
         // 累计时间
-        val elapsedSeconds = ((now - lastActivity) / 1000).coerceIn(1, 30)
+        // 服务重启后的首次累加：使用完整的 gap（但不超过重置阈值）
+        // 后续正常轮询（5秒间隔）：使用 coerceIn(1, 30) 的保守值
+        val inactiveGapSeconds = ((now - lastActivity) / 1000L).coerceAtLeast(0L)
+        val elapsedSeconds = if (inactiveGapSeconds > 30) {
+            // 大 gap = 服务刚重启，补上完整间隔（不超过 resetAfterRestSeconds）
+            inactiveGapSeconds.coerceIn(1L, settings.resetAfterRestSeconds)
+        } else {
+            // 正常轮询间隔，保守累加
+            inactiveGapSeconds.coerceIn(1L, 30L)
+        }
         val updatedSession = session.copy(
             totalDurationSeconds = session.totalDurationSeconds + elapsedSeconds,
             lastActivityTime = now,

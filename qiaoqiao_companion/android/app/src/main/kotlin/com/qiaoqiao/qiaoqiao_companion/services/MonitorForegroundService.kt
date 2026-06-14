@@ -405,19 +405,58 @@ class MonitorForegroundService : Service() {
     // ==================== 倒计时恢复辅助方法 ====================
 
     /**
-     * 从 DB 读取活跃会话的倒计时剩余秒数（按挂钟计算）。
-     * 返回 null 表示没有活跃的倒计时（Flutter 侧未写入两列）。
-     * 返回 > 0 表示还剩 N 秒；返回 <= 0 表示已过期，应触发强制休息。
+     * 从 DB 读取活跃会话的倒计时剩余秒数。
+     *
+     * 两条路径：
+     *  Path 1（挂钟恢复，最高精度）：Flutter 侧已写入 countdownStartedAt + countdownTotalSeconds，
+     *         按挂钟算术恢复剩余时间。
+     *  Path 2（基于 session 估算，兜底）：Flutter 未持久化倒计时状态时（如进程被杀前未到倒计时阈值），
+     *         根据 totalDurationSeconds + 自 lastActivityTime 以来的估算时间独立计算剩余时间。
+     *
+     * @return null = 无活跃倒计时；>0 = 剩余秒数；<=0 = 已过期，应触发强制休息。
      */
     private fun checkActiveCountdown(now: Long): Long? {
         val repo = nativeRuleRepository ?: return null
         val settings = repo.getContinuousUsageSettings()
         if (!settings.enabled) return null
+
+        // 如果正在强制休息中，由步骤B的 forced_rest 分支处理
+        val restRemaining = repo.getActiveRestRemainingSeconds()
+        if (restRemaining > 0) return null
+
         val session = repo.getActiveContinuousSession() ?: return null
-        val startedAt = session.countdownStartedAt ?: return null
-        val totalSec = session.countdownTotalSeconds ?: return null
-        val endMs = startedAt + totalSec * 1000L
-        return (endMs - now) / 1000L
+
+        // Path 1: 挂钟恢复（最高精度 - Flutter 成功持久化过的场景）
+        val startedAt = session.countdownStartedAt
+        val totalSec = session.countdownTotalSeconds
+        if (startedAt != null && totalSec != null) {
+            val endMs = startedAt + totalSec * 1000L
+            return (endMs - now) / 1000L
+        }
+
+        // Path 2: 基于 session 数据的独立计算（Flutter 未持久化倒计时状态时的兜底）
+        // 用 totalDurationSeconds + 自 lastActivityTime 以来的估算时间来计算剩余时间
+        val lastActivity = session.lastActivityTime ?: return null
+        // 服务重启后的时间间隔估算，上限为 resetAfterRestSeconds
+        // （超过重置阈值时 session 本应被停用，不该再计时）
+        val inactiveGapSeconds = ((now - lastActivity) / 1000L).coerceIn(0L, settings.resetAfterRestSeconds)
+        val estimatedTotal = session.totalDurationSeconds + inactiveGapSeconds
+        val remaining = settings.limitSeconds - estimatedTotal
+
+        if (remaining <= 0) {
+            // 使用时间已超限 → 触发强制休息
+            return 0L
+        }
+
+        if (remaining <= 300 && remaining < settings.limitSeconds) {
+            // 倒计时阈值内 → 持久化状态并返回剩余秒数
+            // 持久化让后续步骤A用精确的挂钟 Path 1 维护
+            persistCountdownState(now, remaining)
+            return remaining
+        }
+
+        // 还有充足使用时间，不需要显示倒计时
+        return null
     }
 
     /**
