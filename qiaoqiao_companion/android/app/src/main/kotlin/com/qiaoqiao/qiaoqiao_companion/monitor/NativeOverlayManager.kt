@@ -777,6 +777,43 @@ class NativeOverlayManager(private val context: Context) {
         }
     }
 
+    // ==================== 秒表悬浮窗（WidgetManager 使用） ====================
+
+    /**
+     * 显示秒表悬浮窗
+     * 由 WidgetManager 调用，在监控阶段显示已使用时间
+     *
+     * @param usedSeconds 已使用秒数
+     */
+    fun showStopwatchWidget(usedSeconds: Long) {
+        // TODO: Task 6 实现
+    }
+
+    /**
+     * 更新秒表已使用时间
+     *
+     * @param usedSeconds 已使用秒数
+     */
+    fun updateStopwatchTime(usedSeconds: Long) {
+        // TODO: Task 6 实现
+    }
+
+    /**
+     * 隐藏秒表悬浮窗
+     */
+    fun hideStopwatchWidget() {
+        // TODO: Task 6 实现
+    }
+
+    /**
+     * 设置倒计时悬浮窗颜色
+     *
+     * @param color Android Color int (e.g. Color.YELLOW, Color.RED)
+     */
+    fun setCountdownColor(color: Int) {
+        // TODO: Task 6 实现
+    }
+
     /**
      * 清理资源
      */
