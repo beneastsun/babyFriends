@@ -1,0 +1,9 @@
+- generic [active] [ref=e1]:
+  - img:
+    - generic:
+      - generic:
+        - generic:
+          - generic: "%"
+  - generic [ref=e4]:
+    - img "Logo" [ref=e5]
+    - generic [ref=e12]: SG Admin

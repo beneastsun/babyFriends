@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qiaoqiao_companion/core/theme/app_solid_colors.dart';
 import 'package:qiaoqiao_companion/core/theme/app_theme.dart';
 import 'package:qiaoqiao_companion/shared/models/hourly_usage_stats.dart';
-import 'package:qiaoqiao_companion/core/services/usage_monitor_service.dart';
+import 'package:qiaoqiao_companion/core/services/config_sync_service.dart';
 import 'package:qiaoqiao_companion/shared/providers/hourly_usage_provider.dart';
 import 'package:qiaoqiao_companion/shared/widgets/design_system/app_card.dart';
 
@@ -55,7 +55,7 @@ class DailyTimelineWidget extends ConsumerWidget {
                 color: Colors.transparent,
                 child: InkWell(
                   onTap: () async {
-                    await ref.read(usageMonitorServiceProvider).refreshTodayUsage();
+                    await ref.read(configSyncServiceProvider).refreshTodayUsage();
                     await ref
                         .read(todayHourlyTimelineNotifierProvider.notifier)
                         .refresh();

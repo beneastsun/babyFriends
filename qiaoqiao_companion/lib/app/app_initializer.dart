@@ -83,11 +83,10 @@ class AppInitializationNotifier extends StateNotifier<AppInitializationState> {
         isOnboardingCompleted: isOnboardingCompleted,
       );
 
-      // 5. 如果权限已授予，启动监控和前台服务
+      // 5. 如果权限已授予，启动配置同步和前台服务
       if (hasUsageStats && hasOverlay) {
-        // 冷启动/进程重建时清掉原生侧残留 overlay，避免阻塞 widget 显示
-        await _ref.read(overlayStateManagerProvider).syncWithNative();
-        _ref.read(usageMonitorServiceProvider).startMonitoring();
+        // 启动配置同步（替代原 UsageMonitorService，仅负责数据同步）
+        _ref.read(configSyncServiceProvider).startSync();
         await MonitorService.startForegroundService();
         // 启动守护服务（独立进程保活）
         await MonitorService.startGuardService();
@@ -130,8 +129,8 @@ class AppInitializationNotifier extends StateNotifier<AppInitializationState> {
     state = state.copyWith(isPermissionsGranted: granted);
 
     if (granted) {
-      await _ref.read(overlayStateManagerProvider).syncWithNative();
-      _ref.read(usageMonitorServiceProvider).startMonitoring();
+      // 启动配置同步（替代原 UsageMonitorService，仅负责数据同步）
+      _ref.read(configSyncServiceProvider).startSync();
       await MonitorService.startForegroundService();
       // 启动守护服务（独立进程保活）
       await MonitorService.startGuardService();
@@ -143,8 +142,8 @@ class AppInitializationNotifier extends StateNotifier<AppInitializationState> {
     state = state.copyWith(isOnboardingCompleted: true);
 
     // Onboarding完成后启动监控服务（权限已在onboarding流程中授予）
-    await _ref.read(overlayStateManagerProvider).syncWithNative();
-    _ref.read(usageMonitorServiceProvider).startMonitoring();
+    // 启动配置同步（替代原 UsageMonitorService，仅负责数据同步）
+    _ref.read(configSyncServiceProvider).startSync();
     await MonitorService.startForegroundService();
     // 启动守护服务（独立进程保活）
     await MonitorService.startGuardService();
