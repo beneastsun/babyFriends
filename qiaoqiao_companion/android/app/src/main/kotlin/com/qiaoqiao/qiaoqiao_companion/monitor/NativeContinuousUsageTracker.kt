@@ -280,6 +280,22 @@ class NativeContinuousUsageTracker(
     }
 
     /**
+     * Persist countdown state to DB so engine can recover after process death.
+     * Writes countdownStartedAt (wall-clock ms) and countdownTotalSeconds.
+     */
+    fun persistCountdownState(now: Long, remainingSeconds: Long) {
+        val session = activeSession ?: repository.getActiveContinuousSession() ?: return
+        val updated = session.copy(
+            countdownStartedAt = now,
+            countdownTotalSeconds = remainingSeconds,
+            updatedAt = now
+        )
+        repository.updateContinuousSession(updated)
+        activeSession = updated
+        Log.d(TAG, "Persisted countdown: startedAt=$now, total=${remainingSeconds}s")
+    }
+
+    /**
      * 跟踪结果
      */
     data class TrackingResult(
