@@ -9,6 +9,7 @@ import android.graphics.PixelFormat
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.util.Log
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -28,8 +29,19 @@ import io.flutter.plugin.common.MethodChannel
  */
 class OverlayChannel(private val context: Context, private val channel: MethodChannel) : MethodChannel.MethodCallHandler {
 
+    init {
+        instance = this
+    }
+
     companion object {
         const val CHANNEL_NAME = "com.qiaoqiao.companion/overlay"
+
+        /**
+         * 全局引用，供 MonitorForegroundService 在启动 EnforcementEngine 前清除旧 widget
+         */
+        @Volatile
+        var instance: OverlayChannel? = null
+            private set
 
         /**
          * 检查是否有悬浮窗权限
@@ -122,16 +134,10 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
             }
 
             "showCountdownWidget" -> {
-                val totalSeconds = call.argument<Int>("totalSeconds") ?: 300
-                val lockTitle = call.argument<String>("lockTitle")
-                val lockMessage = call.argument<String>("lockMessage")
-                val lockDurationSeconds = call.argument<Int>("lockDurationSeconds") ?: 0
-                val lockPackageName = call.argument<String>("lockPackageName")
-                showCountdownWidget(
-                    totalSeconds, result,
-                    lockTitle, lockMessage,
-                    lockDurationSeconds, lockPackageName
-                )
+                // 已由 EnforcementEngine 接管，不再通过 Flutter MethodChannel 创建倒计时 widget
+                // 仅清除可能残留的旧 widget
+                hideCountdownWidget()
+                result.success(null)
             }
 
             "hideCountdownWidget" -> {
@@ -972,5 +978,16 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
                 override fun notImplemented() {}
             }
         )
+    }
+
+    /**
+     * 清除所有 overlay（倒计时 widget + 锁定覆盖层）
+     * 供 MonitorForegroundService 在启动 EnforcementEngine 前调用，
+     * 确保没有残留的旧 Flutter 侧 widget 与原生引擎的 widget 冲突
+     */
+    fun clearAllOverlays() {
+        hideCountdownWidget()
+        hideOverlay()
+        Log.d("OverlayChannel", "All overlays cleared (EnforcementEngine takeover)")
     }
 }

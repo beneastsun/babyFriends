@@ -21,6 +21,7 @@ import com.qiaoqiao.qiaoqiao_companion.MainActivity
 import com.qiaoqiao.qiaoqiao_companion.R
 import com.qiaoqiao.qiaoqiao_companion.activities.AlarmProxyActivity
 import com.qiaoqiao.qiaoqiao_companion.activities.AppLockOverlayActivity
+import com.qiaoqiao.qiaoqiao_companion.channels.OverlayChannel
 import com.qiaoqiao.qiaoqiao_companion.managers.AppLockManager
 import com.qiaoqiao.qiaoqiao_companion.monitor.EnforcementEngine
 import com.qiaoqiao.qiaoqiao_companion.monitor.NativeContinuousUsageTracker
@@ -266,10 +267,19 @@ class MonitorForegroundService : Service() {
         }
 
         try {
+            // 清除 Flutter 侧 OverlayChannel 可能残留的旧 widget，
+            // 防止与 EnforcementEngine 的新 widget 同时显示
+            try {
+                OverlayChannel.instance?.clearAllOverlays()
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to clear OverlayChannel overlays", e)
+            }
+
             val repository = NativeRuleRepository(applicationContext)
             val ruleEvaluator = RuleEvaluator(repository)
             val usageTracker = NativeContinuousUsageTracker(repository)
             val overlayManager = NativeOverlayManager(applicationContext)
+            overlayManager.clearAllOverlays()  // 清除可能残留的旧原生 overlay
             val widgetManager = WidgetManager(overlayManager)
 
             engine = EnforcementEngine(

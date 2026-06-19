@@ -53,12 +53,6 @@ class NativeOverlayManager(private val context: Context) {
     private var countdownAlert3minFired = false
     private var countdownAlert2minFired = false
 
-    // 秒表悬浮窗
-    private var stopwatchWidgetView: View? = null
-    private var stopwatchTextTime: TextView? = null
-    private var stopwatchLayoutParams: WindowManager.LayoutParams? = null
-    private var isStopwatchShowing = false
-
     // 覆盖层内倒计时（用于锁屏视图上的休息倒计时）
     private var backButton: TextView? = null
     private var lockCountdownText: TextView? = null
@@ -620,99 +614,6 @@ class NativeOverlayManager(private val context: Context) {
     }
 
     /**
-     * 创建秒表悬浮窗视图
-     * 显示 "已用 MM:SS" 格式，半透明深色背景
-     */
-    private fun createStopwatchView(usedSeconds: Long): View {
-        val density = context.resources.displayMetrics.density
-
-        val container = FrameLayout(context).apply {
-            val cornerRadius = (20 * density).toInt()
-            background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(0xCC000000.toInt())
-                this.cornerRadius = cornerRadius.toFloat()
-            }
-            setPadding(
-                (16 * density).toInt(),
-                (10 * density).toInt(),
-                (16 * density).toInt(),
-                (10 * density).toInt()
-            )
-        }
-
-        val contentLayout = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-
-        val labelView = TextView(context).apply {
-            text = "已用"
-            textSize = 14f
-            setTextColor(0xFFCCCCCC.toInt())
-            setPadding(0, 0, (6 * density).toInt(), 0)
-        }
-
-        val timeView = TextView(context).apply {
-            tag = "stopwatch_time"
-            text = formatStopwatchTime(usedSeconds)
-            textSize = 16f
-            setTextColor(0xFFFFFFFF.toInt())
-            typeface = Typeface.DEFAULT_BOLD
-            setShadowLayer(2f, 1f, 1f, 0x40000000)
-        }
-
-        contentLayout.addView(labelView)
-        contentLayout.addView(timeView)
-        container.addView(contentLayout)
-
-        setupStopwatchDragListener(container)
-        return container
-    }
-
-    /**
-     * 格式化秒表时间 "MM:SS"
-     */
-    private fun formatStopwatchTime(seconds: Long): String {
-        val sec = seconds.coerceAtLeast(0)
-        val min = sec / 60
-        val s = sec % 60
-        return String.format("%02d:%02d", min, s)
-    }
-
-    /**
-     * 设置秒表悬浮窗拖动监听
-     */
-    private fun setupStopwatchDragListener(view: View) {
-        var initialX = 0
-        var initialY = 0
-        var initialTouchX = 0f
-        var initialTouchY = 0f
-
-        view.setOnTouchListener { v, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    stopwatchLayoutParams?.let { params ->
-                        initialX = params.x
-                        initialY = params.y
-                    }
-                    initialTouchX = event.rawX
-                    initialTouchY = event.rawY
-                    true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    stopwatchLayoutParams?.let { params ->
-                        params.x = initialX + (initialTouchX - event.rawX).toInt()
-                        params.y = initialY + (event.rawY - initialTouchY).toInt()
-                        windowManager?.updateViewLayout(view, params)
-                    }
-                    true
-                }
-                else -> false
-            }
-        }
-    }
-
-    /**
      * 启动倒计时动画
      */
     private fun startCountdownAnimation(totalSeconds: Long) {
@@ -885,103 +786,6 @@ class NativeOverlayManager(private val context: Context) {
         }
     }
 
-    // ==================== 秒表悬浮窗（WidgetManager 使用） ====================
-
-    /**
-     * 显示秒表悬浮窗
-     * 由 WidgetManager 调用，在监控阶段显示已使用时间
-     *
-     * @param usedSeconds 已使用秒数
-     */
-    fun showStopwatchWidget(usedSeconds: Long) {
-        if (!hasOverlayPermission()) {
-            Log.w(TAG, "No overlay permission, cannot show stopwatch")
-            return
-        }
-
-        // 如果已经在显示，只更新时间
-        if (isStopwatchShowing && stopwatchWidgetView != null) {
-            updateStopwatchTime(usedSeconds)
-            return
-        }
-
-        hideStopwatchWidget()
-
-        try {
-            windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-            stopwatchWidgetView = createStopwatchView(usedSeconds)
-            stopwatchTextTime = stopwatchWidgetView?.findViewWithTag("stopwatch_time")
-
-            stopwatchLayoutParams = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                } else {
-                    @Suppress("DEPRECATION")
-                    WindowManager.LayoutParams.TYPE_PHONE
-                },
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                PixelFormat.TRANSLUCENT
-            ).apply {
-                gravity = Gravity.TOP or Gravity.END
-                x = 32
-                y = 100
-            }
-
-            windowManager?.addView(stopwatchWidgetView, stopwatchLayoutParams)
-            isStopwatchShowing = true
-
-            stopwatchWidgetView?.alpha = 0f
-            stopwatchWidgetView?.animate()
-                ?.alpha(1f)
-                ?.setDuration(200)
-                ?.setInterpolator(DecelerateInterpolator())
-                ?.start()
-
-            Log.d(TAG, "Stopwatch widget shown: ${usedSeconds}s used")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to show stopwatch widget", e)
-        }
-    }
-
-    /**
-     * 更新秒表已使用时间
-     *
-     * @param usedSeconds 已使用秒数
-     */
-    fun updateStopwatchTime(usedSeconds: Long) {
-        if (!isStopwatchShowing) return
-        try {
-            stopwatchTextTime?.text = formatStopwatchTime(usedSeconds)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to update stopwatch time", e)
-        }
-    }
-
-    /**
-     * 隐藏秒表悬浮窗
-     */
-    fun hideStopwatchWidget() {
-        val view = stopwatchWidgetView
-        stopwatchWidgetView = null
-        isStopwatchShowing = false
-        stopwatchLayoutParams = null
-        stopwatchTextTime = null
-
-        view?.let {
-            try {
-                it.animate().cancel()
-                windowManager?.removeView(it)
-            } catch (e: Exception) {
-                // 视图可能已被系统移除
-            }
-        }
-    }
-
     /**
      * 设置倒计时悬浮窗颜色
      *
@@ -997,6 +801,16 @@ class NativeOverlayManager(private val context: Context) {
     }
 
     /**
+     * 清除所有 overlay（倒计时 widget + 锁定覆盖层）
+     * 在 EnforcementEngine 启动前调用，确保没有残留的旧 widget
+     */
+    fun clearAllOverlays() {
+        hideCountdownOverlay()
+        hideOverlayImmediate()
+        Log.d(TAG, "All overlays cleared")
+    }
+
+    /**
      * 清理资源
      */
     fun destroy() {
@@ -1004,7 +818,6 @@ class NativeOverlayManager(private val context: Context) {
         cancelLockCountdown()
         hideOverlayImmediate()
         hideCountdownOverlay()
-        hideStopwatchWidget()
         windowManager = null
     }
 }
