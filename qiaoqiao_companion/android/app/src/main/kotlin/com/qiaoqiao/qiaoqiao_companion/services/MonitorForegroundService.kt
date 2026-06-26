@@ -24,6 +24,7 @@ import com.qiaoqiao.qiaoqiao_companion.activities.AppLockOverlayActivity
 import com.qiaoqiao.qiaoqiao_companion.channels.OverlayChannel
 import com.qiaoqiao.qiaoqiao_companion.managers.AppLockManager
 import com.qiaoqiao.qiaoqiao_companion.monitor.EnforcementEngine
+import com.qiaoqiao.qiaoqiao_companion.monitor.EngineState
 import com.qiaoqiao.qiaoqiao_companion.monitor.NativeContinuousUsageTracker
 import com.qiaoqiao.qiaoqiao_companion.monitor.NativeOverlayManager
 import com.qiaoqiao.qiaoqiao_companion.monitor.NativeRuleRepository
@@ -112,6 +113,11 @@ class MonitorForegroundService : Service() {
     private val INITIAL_DELAY_MS = 1_000L // 首次延迟1秒
     private var engine: EnforcementEngine? = null
 
+    // queryEvents 动态查询窗口（毫秒）。MIUI 持续使用同一 app 时不产生新 RESUMED 事件，
+    // 窗口必须覆盖会话时长。每 60 秒从配置刷新：max(2小时, limitMinutes*2*60*1000)。
+    private var cachedQueryWindowMs: Long = 2 * 60 * 60 * 1000L
+    private var settingsRefreshPollCount = 0
+
     override fun onCreate() {
         super.onCreate()
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -145,7 +151,8 @@ class MonitorForegroundService : Service() {
             null -> {
                 startNativeMonitoring()
                 // START_STICKY 重建 = 被系统杀死后重启，检查是否需要显示 AppLock
-                if (AppLockManager.shouldShowLock(applicationContext)) {
+                // 但如果 EnforcementEngine 的 lock overlay 已经在显示（REST 状态），不要重复弹出
+                if (AppLockManager.shouldShowLock(applicationContext) && engine?.state != EngineState.REST) {
                     try {
                         AppLockOverlayActivity.start(applicationContext)
                     } catch (e: Exception) {
@@ -287,8 +294,45 @@ class MonitorForegroundService : Service() {
                 ruleEvaluator = ruleEvaluator,
                 usageTracker = usageTracker,
                 widgetManager = widgetManager,
-                overlayManager = overlayManager
+                overlayManager = overlayManager,
+                context = applicationContext
             )
+
+            // 倒计时归零衔接：widget ticker 归零瞬间立刻触发 REST（消除 5s 空窗）
+            widgetManager.onCountdownZero = {
+                engine?.onCountdownZero()
+            }
+
+            // Register overlay dismiss callback — when user clicks "回到纹纹小伙伴" button
+            overlayManager.onLockOverlayDismissed = {
+                // onOverlayDismissed 已同步完成状态转换（REST → IDLE，会话停用，tracker reset），
+                // overlay 通过 hideOverlayImmediate() 立即移除（无 200ms 动画窗口）。
+                // 不再在此触发立即 poll —— 立即 poll 会在 launchMainActivity 生效前检测到
+                // 被监控 app 仍在前台，立刻新建会话并弹出 countdown widget，与淡出的 lock overlay
+                // 叠加、按钮重复点击竞争，导致"弹窗不消失/卡死"。下一个常规 5s 轮询会自然处理状态。
+                engine?.onOverlayDismissed()
+            }
+
+            // 家长入口回调 — 从倒计时widget点击🔒图标，显示自定义数字键盘
+            overlayManager.onParentEntryFromWidget = {
+                overlayManager.isPasswordInputActive = true
+                overlayManager.showPasswordKeypadPublic()
+            }
+
+            // 家长密码验证成功回调 — 密码正确后关闭倒计时或锁定覆盖层
+            // 由 NativeOverlayManager 的自定义数字键盘验证成功后调用
+            overlayManager.onParentPasswordVerified = {
+                overlayManager.isPasswordInputActive = false
+                NativeOverlayManager.passwordInputActivityActive = false
+                val currentState = engine?.state
+                if (currentState == EngineState.COUNTDOWN) {
+                    // 从倒计时widget家长入口验证成功：关闭倒计时，停用会话，转IDLE
+                    engine?.onParentOverrideFromCountdown()
+                } else if (currentState == EngineState.REST) {
+                    // 从lock overlay家长入口验证成功：关闭overlay，停用会话，转IDLE
+                    engine?.onParentOverrideFromLock()
+                }
+            }
 
             // 从 DB 恢复状态（进程被杀后重启时，可能存在活跃倒计时或休息中）
             engine!!.restoreFromDB(System.currentTimeMillis())
@@ -322,12 +366,30 @@ class MonitorForegroundService : Service() {
         override fun run() {
             try {
                 val now = System.currentTimeMillis()
+
+                // 每 60 秒（12 次轮询）刷新一次配置，计算动态查询窗口
+                // MIUI 持续使用同一 app 时不产生新 RESUMED 事件，窗口必须 ≥ 会话时长
+                if (settingsRefreshPollCount % 12 == 0) {
+                    try {
+                        val repo = NativeRuleRepository(applicationContext)
+                        val settings = repo.getContinuousUsageSettings()
+                        // 窗口 = max(2小时, 限制时长 * 2)，保证 RESUMED 不掉出窗口
+                        cachedQueryWindowMs = maxOf(
+                            2 * 60 * 60 * 1000L,
+                            settings.limitSeconds * 1000L * 2
+                        )
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to refresh settings for query window", e)
+                    }
+                }
+                settingsRefreshPollCount++
+
                 val foregroundApp = UsageStatsHelper.getCurrentForegroundApp(
-                    applicationContext, packageName
+                    applicationContext, packageName, cachedQueryWindowMs
                 )
 
                 // 委托 EnforcementEngine 处理所有规则检查和 UI 决策
-                engine?.onPoll(now, foregroundApp)
+                engine?.onPoll(now, foregroundApp, UsageStatsHelper.lastDetectionWasSelfApp)
             } catch (e: Exception) {
                 Log.e(TAG, "Native monitoring error", e)
             }
@@ -369,8 +431,12 @@ class MonitorForegroundService : Service() {
         engine?.persistStateBeforeDeath()
 
         // 1. 最先显示 AppLock（最重要，趁进程还活着）
-        if (AppLockManager.isLockEnabled(applicationContext)) {
+        //    但如果 EnforcementEngine 的 lock overlay 已经在显示，不要重复弹出
+        //    AppLockOverlayActivity 会创建全屏通知，与 lock overlay 叠加导致闪缩
+        if (AppLockManager.isLockEnabled(applicationContext) && engine?.state != EngineState.REST) {
             Log.d(TAG, "App lock is enabled, showing overlay")
+            // 真正被用户滑掉 app 时才记录触发时间
+            AppLockManager.setLastTriggerTime(applicationContext, System.currentTimeMillis())
             try {
                 AppLockOverlayActivity.start(applicationContext)
             } catch (e: Exception) {

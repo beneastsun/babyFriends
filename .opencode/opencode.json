@@ -1,0 +1,52 @@
+{
+    "$schema": "https://opencode.ai/config.json",
+
+    // ============================================================
+    //  baby-friends（巧巧小伙伴）项目级配置
+    //  自动继承全局配置。此处仅定义项目特有覆盖项。
+    // ============================================================
+
+    // ============================================================
+    //  一、项目级指令文件
+    //  在全局 instructions 基础上追加项目特有指令
+    // ============================================================
+    "instructions": [
+        "~/.config/opencode/instructions.md",
+        ".opencode/instructions.md"
+    ],
+
+    // ============================================================
+    //  二、项目级长效记忆引用
+    //  与全局 references 合并，项目级优先级更高
+    // ============================================================
+    "references": {
+        "project-docs": {
+            "path": "D:\\Developfile\\Workspace\\baby-friends",
+            "description": "baby-friends 项目文档：设计文档、需求、技术栈、开发记录"
+        },
+        "project-pitfalls": {
+            "path": "D:\\Developfile\\Workspace\\baby-friends\\pitfalls.md",
+            "description": "baby-friends 项目踩坑日志"
+        },
+        "project-devlog": {
+            "path": "D:\\Developfile\\Workspace\\baby-friends\\dev-log.md",
+            "description": "baby-friends 项目开发记录"
+        },
+        "claude-proj-memory": {
+            "path": "C:\\Users\\chenjj\\.claude\\projects",
+            "description": "Claude Code 项目级持久记忆目录"
+        }
+    },
+
+    // ============================================================
+    //  三、项目级 DCP 覆盖
+    //  项目特定的上下文裁剪需求
+    // ============================================================
+    "compaction": {
+        "auto": true,
+        "prune": true,
+        "tail_turns": 4,
+        "preserve_recent_tokens": 14000,
+        "reserved": 18000
+    }
+}

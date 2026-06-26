@@ -94,6 +94,21 @@
                 android:value="guard" />
         </service>
 
+        <!-- 前台应用监听服务 — AccessibilityService 方案 -->
+        <!-- 在 MIUI 等系统上 queryEvents 不可靠时，通过无障碍服务监听前台 app 切换 -->
+        <service
+            android:name=".services.ForegroundAppWatcher"
+            android:enabled="true"
+            android:exported="false"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
         <!-- 开机自启动广播接收器 -->
         <receiver
             android:name=".receivers.BootReceiver"
@@ -145,6 +160,14 @@
             android:launchMode="singleTask"
             android:taskAffinity=""
             android:theme="@android:style/Theme.NoTitleBar.Fullscreen" />
+
+        <!-- 密码输入Activity — 替代overlay内嵌EditText，避免MIUI resize循环闪缩 -->
+        <activity
+            android:name=".activities.PasswordInputActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

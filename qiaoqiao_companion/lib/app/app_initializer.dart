@@ -4,6 +4,7 @@ import 'package:qiaoqiao_companion/core/platform/platform.dart';
 import 'package:qiaoqiao_companion/shared/providers/providers.dart';
 import 'package:qiaoqiao_companion/core/services/services.dart';
 import 'package:qiaoqiao_companion/features/onboarding/data/onboarding_state.dart';
+import 'package:qiaoqiao_companion/features/parent_mode/data/parent_password_repository.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 应用初始化状态
@@ -55,6 +56,9 @@ class AppInitializationNotifier extends StateNotifier<AppInitializationState> {
       // 1. 初始化数据库
       final dbService = await DatabaseService.getInstance();
       await dbService.initialize();
+
+      // 1.1 迁移家长密码到 DB（供 Kotlin 端原生读取）
+      await ParentPasswordRepository().migrateToDb();
 
       // 2. 加载状态
       await Future.wait([

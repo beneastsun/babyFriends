@@ -39,9 +39,6 @@ class AppLockOverlayActivity : Activity() {
         fun start(context: Context) {
             Log.d(TAG, "start() called - preparing to show lock overlay")
 
-            // 记录触发时间
-            AppLockManager.setLastTriggerTime(context, System.currentTimeMillis())
-
             // Android 10+ 后台启动 Activity 受限，直接使用全屏通知
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 Log.d(TAG, "Android 10+, using full-screen notification")
@@ -230,6 +227,7 @@ class AppLockOverlayActivity : Activity() {
             // 取消通知
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.cancel(NOTIFICATION_ID)
+            AppLockManager.clearLastTriggerTime(this)
             finish()
         } else {
             // 密码错误
@@ -250,6 +248,7 @@ class AppLockOverlayActivity : Activity() {
      * 重新打开App
      */
     private fun reopenApp() {
+        AppLockManager.clearLastTriggerTime(this)
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }

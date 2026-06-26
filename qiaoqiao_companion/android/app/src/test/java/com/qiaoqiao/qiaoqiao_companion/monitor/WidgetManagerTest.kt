@@ -1,16 +1,21 @@
 package com.qiaoqiao.qiaoqiao_companion.monitor
 
 import android.graphics.Color
-import org.junit.jupiter.api.Assertions.*
+import android.util.Log
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
-import org.mockito.InOrder
+import org.mockito.MockedStatic
+import org.mockito.Mockito.anyString
+import org.mockito.Mockito.mockStatic
 import org.mockito.kotlin.*
 
 /**
  * TDD tests for WidgetManager — a thin wrapper around NativeOverlayManager
  * that provides simplified methods for the EnforcementEngine to drive UI.
+ *
+ * Only manages a single countdown widget (no stopwatch).
  *
  * NativeOverlayManager is fully mocked; no Android framework needed.
  */
@@ -18,121 +23,132 @@ class WidgetManagerTest {
 
     private lateinit var overlayManager: NativeOverlayManager
     private lateinit var widgetManager: WidgetManager
+    private lateinit var mockedLog: MockedStatic<Log>
 
     @BeforeEach
     fun setUp() {
         overlayManager = mock()
         widgetManager = WidgetManager(overlayManager)
+        // Mock android.util.Log for unit tests (not available in JVM)
+        mockedLog = mockStatic(Log::class.java)
+        mockedLog.`when`<Int> { Log.d(anyString(), anyString()) }.thenReturn(0)
+        mockedLog.`when`<Int> { Log.w(anyString(), anyString()) }.thenReturn(0)
+        mockedLog.`when`<Int> { Log.e(anyString(), anyString()) }.thenReturn(0)
+    }
+
+    @AfterEach
+    fun tearDown() {
+        mockedLog.close()
     }
 
     // ══════════════════════════════════════════════════════════════
-    //  1. showStopwatch delegates to overlayManager.showStopwatchWidget()
+    //  1. showCountdown delegates to overlayManager.showCountdownOverlayWithAlerts()
     // ══════════════════════════════════════════════════════════════
     @Test
-    @DisplayName("showStopwatch calls overlayManager.showStopwatchWidget()")
-    fun showStopwatch_callsShowStopwatchWidget() {
-        widgetManager.showStopwatch(usedSeconds = 600L)
+    @DisplayName("showCountdown calls overlayManager.showCountdownOverlayWithAlerts()")
+    fun showCountdown_callsShowCountdownOverlayWithAlerts() {
+        widgetManager.showCountdown(remainingSeconds = 300L)
 
-        verify(overlayManager).showStopwatchWidget(600L)
-    }
-
-    // ══════════════════════════════════════════════════════════════
-    //  2. updateStopwatch delegates to overlayManager.updateStopwatchTime()
-    // ══════════════════════════════════════════════════════════════
-    @Test
-    @DisplayName("updateStopwatch calls overlayManager.updateStopwatchTime()")
-    fun updateStopwatch_callsUpdateStopwatchTime() {
-        widgetManager.updateStopwatch(usedSeconds = 900L)
-
-        verify(overlayManager).updateStopwatchTime(900L)
-    }
-
-    // ══════════════════════════════════════════════════════════════
-    //  3. switchToCountdown hides stopwatch then shows countdown (inOrder)
-    // ══════════════════════════════════════════════════════════════
-    @Test
-    @DisplayName("switchToCountdown hides stopwatch then shows countdown")
-    fun switchToCountdown_hidesStopwatchThenShowsCountdown() {
-        widgetManager.switchToCountdown(remainingSeconds = 300L)
-
-        val inOrder = inOrder(overlayManager)
-        inOrder.verify(overlayManager).hideStopwatchWidget()
-        inOrder.verify(overlayManager).showCountdownOverlayWithAlerts(
+        verify(overlayManager).showCountdownOverlayWithAlerts(
             eq(300L),
+            any(),
             any(),
             any(),
             any()
         )
     }
 
-    // ══════════════════════════════════════════════════════════════
-    //  4. updateCountdown delegates to overlayManager.updateCountdownTime()
-    // ══════════════════════════════════════════════════════════════
     @Test
-    @DisplayName("updateCountdown calls overlayManager.updateCountdownTime()")
+    @DisplayName("isCountdownShowing 直接反映 NativeOverlayManager 状态")
+    fun isCountdownShowing_delegatesToOverlayManager() {
+        whenever(overlayManager.isCountdownShowing()).thenReturn(true)
+        org.junit.jupiter.api.Assertions.assertTrue(widgetManager.isCountdownShowing())
+    }
+
+    @Test
+    @DisplayName("updateCountdown calls overlayManager.updateCountdownTime() when overlay showing")
     fun updateCountdown_callsUpdateCountdownTime() {
+        // Simulate overlay is still showing (not reclaimed by system)
+        whenever(overlayManager.isCountdownShowing()).thenReturn(true)
+
         widgetManager.updateCountdown(remainingSeconds = 180L)
 
         verify(overlayManager).updateCountdownTime(180L)
     }
 
-    // ══════════════════════════════════════════════════════════════
-    //  5. updateCountdownColor — YELLOW when remaining <= 5min (300s)
-    // ══════════════════════════════════════════════════════════════
+    @Test
+    @DisplayName("updateCountdown rebuilds widget when overlay lost (system reclaim)")
+    fun updateCountdown_rebuildsWhenOverlayLost() {
+        // Simulate overlay was reclaimed by system (isCountdownShowing = false)
+        whenever(overlayManager.isCountdownShowing()).thenReturn(false)
+
+        widgetManager.updateCountdown(remainingSeconds = 180L)
+
+        // Should call showCountdownOverlayWithAlerts to rebuild, not updateCountdownTime
+        verify(overlayManager).showCountdownOverlayWithAlerts(
+            eq(180L),
+            any(),
+            any(),
+            any()
+        )
+        verify(overlayManager, never()).updateCountdownTime(any())
+    }
+
     @Test
     @DisplayName("updateCountdownColor sets YELLOW when remaining <= 5min")
     fun updateCountdownColor_yellowWhen5min() {
-        // 280 seconds remaining = 4min 40s, which is <= 300s (5min)
         widgetManager.updateCountdownColor(remainingSeconds = 280L)
-
         verify(overlayManager).setCountdownColor(Color.YELLOW)
     }
 
-    // ══════════════════════════════════════════════════════════════
-    //  6. updateCountdownColor — ORANGE (0xFFFF9800) when <= 3min (180s)
-    // ══════════════════════════════════════════════════════════════
     @Test
     @DisplayName("updateCountdownColor sets ORANGE when remaining <= 3min")
     fun updateCountdownColor_orangeWhen3min() {
-        // 170 seconds remaining = 2min 50s, which is <= 180s (3min)
         widgetManager.updateCountdownColor(remainingSeconds = 170L)
-
         verify(overlayManager).setCountdownColor(0xFFFF9800.toInt())
     }
 
-    // ══════════════════════════════════════════════════════════════
-    //  7. updateCountdownColor — RED when <= 2min (120s)
-    // ══════════════════════════════════════════════════════════════
     @Test
     @DisplayName("updateCountdownColor sets RED when remaining <= 2min")
     fun updateCountdownColor_redWhen2min() {
-        // 100 seconds remaining = 1min 40s, which is <= 120s (2min)
         widgetManager.updateCountdownColor(remainingSeconds = 100L)
-
         verify(overlayManager).setCountdownColor(Color.RED)
     }
 
-    // ══════════════════════════════════════════════════════════════
-    //  8. updateCountdownColor — no change when > 5min
-    // ══════════════════════════════════════════════════════════════
     @Test
     @DisplayName("updateCountdownColor does not change color when remaining > 5min")
     fun updateCountdownColor_noChangeWhenAbove5min() {
-        // 400 seconds remaining = 6min 40s, which is > 300s (5min)
         widgetManager.updateCountdownColor(remainingSeconds = 400L)
-
         verify(overlayManager, never()).setCountdownColor(any<Int>())
     }
 
-    // ══════════════════════════════════════════════════════════════
-    //  9. hideAll hides both countdown and stopwatch
-    // ══════════════════════════════════════════════════════════════
     @Test
-    @DisplayName("hideAll hides both countdown and stopwatch")
-    fun hideAll_hidesBothCountdownAndStopwatch() {
-        widgetManager.hideAll()
-
+    @DisplayName("hideCountdown hides countdown overlay")
+    fun hideCountdown_hidesCountdownOverlay() {
+        widgetManager.hideCountdown()
         verify(overlayManager).hideCountdownOverlay()
-        verify(overlayManager).hideStopwatchWidget()
+    }
+
+    @Test
+    @DisplayName("destroy calls overlayManager.destroy")
+    fun destroy_callsOverlayManagerDestroy() {
+        widgetManager.destroy()
+        verify(overlayManager).destroy()
+    }
+
+    @Test
+    @DisplayName("updateCountdown 使用传入剩余值 rebuild，不重置为旧整分钟")
+    fun updateCountdown_rebuildUsesCurrentRemaining() {
+        whenever(overlayManager.isCountdownShowing()).thenReturn(false)
+
+        widgetManager.updateCountdown(remainingSeconds = 173L)
+
+        verify(overlayManager).showCountdownOverlayWithAlerts(
+            eq(173L),
+            any(),
+            any(),
+            any(),
+            any()
+        )
     }
 }

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
@@ -86,7 +87,25 @@ class ContinuousUsageSettingsNotifier
         );
       }
       await batch.commit(noResult: true);
-    } catch (_) {}
+    } catch (e) {
+      // 不静默吞掉错误，记录日志并重试一次
+      debugPrint('[_syncToDb] Failed to sync settings to DB: $e, retrying...');
+      try {
+        final db = await AppDatabase.instance.database;
+        final now = DateTime.now().millisecondsSinceEpoch;
+        final batch = db.batch();
+        for (final entry in entries.entries) {
+          batch.insert(
+            DatabaseConstants.tableAppSettings,
+            {'key': entry.key, 'value': entry.value, 'updated_at': now},
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+        await batch.commit(noResult: true);
+      } catch (e2) {
+        debugPrint('[_syncToDb] Retry also failed: $e2');
+      }
+    }
   }
 
   Future<void> setEnabled(bool enabled) async {

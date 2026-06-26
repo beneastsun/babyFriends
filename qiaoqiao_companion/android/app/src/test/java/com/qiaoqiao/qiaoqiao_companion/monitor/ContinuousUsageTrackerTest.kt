@@ -2,7 +2,10 @@ package com.qiaoqiao.qiaoqiao_companion.monitor
 
 import android.util.Log
 import org.junit.jupiter.api.AfterEach
-import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
@@ -17,8 +20,8 @@ import com.qiaoqiao.qiaoqiao_companion.monitor.NativeRuleRepository.ContinuousUs
 import com.qiaoqiao.qiaoqiao_companion.monitor.NativeRuleRepository.MonitoredApp
 
 /**
- * TDD tests for NativeContinuousUsageTracker — focus on persistCountdownState
- * and related state management.
+ * TDD tests for NativeContinuousUsageTracker — focus on session persistence
+ * and keeping UI decisions out of the tracker.
  *
  * NativeRuleRepository is mocked; android.util.Log is mocked statically.
  */
@@ -66,17 +69,10 @@ class ContinuousUsageTrackerTest {
         updatedAt = 1000_000L
     )
 
-    /**
-     * Drive the tracker through two updateTracking calls so that it accumulates
-     * time and can reach the countdown threshold.
-     * - Call 1: establishes currentTrackedApp (returns noop/resume)
-     * - Call 2: accumulates elapsed time and checks countdown
-     */
-    private fun setupTrackingWithCountdown(
+    private fun configureDefaultTracking(
         limitMinutes: Int = 20,
-        sessionDurationSeconds: Long = 900L,
-        pollIntervalSeconds: Long = 5L
-    ): NativeContinuousUsageTracker.TrackingResult {
+        sessionDurationSeconds: Long = 900L
+    ) {
         val settings = ContinuousUsageSettings(enabled = true, limitMinutes = limitMinutes)
         whenever(repository.getContinuousUsageSettings()).thenReturn(settings)
         whenever(repository.getMonitoredApps()).thenReturn(
@@ -86,20 +82,8 @@ class ContinuousUsageTrackerTest {
         val session = activeSession(totalDurationSeconds = sessionDurationSeconds)
         whenever(repository.getActiveContinuousSession()).thenReturn(session)
         whenever(repository.updateContinuousSession(org.mockito.kotlin.any())).thenReturn(true)
-
-        // First call: establishes tracking (currentTrackedApp was null)
-        val t0 = 2_000_000L
-        tracker.updateTracking("com.game.app", t0)
-
-        // Second call: accumulates elapsed time and evaluates countdown
-        val t1 = t0 + pollIntervalSeconds * 1000L
-        return tracker.updateTracking("com.game.app", t1)
     }
 
-    // ══════════════════════════════════════════════════════════════
-    //  1. persistCountdownState writes countdownStartedAt and
-    //     countdownTotalSeconds to session
-    // ══════════════════════════════════════════════════════════════
     @Test
     @DisplayName("persistCountdownState writes countdownStartedAt and countdownTotalSeconds to session")
     fun persistCountdownState_writesCountdownFields() {
@@ -120,9 +104,6 @@ class ContinuousUsageTrackerTest {
         verify(repository).updateContinuousSession(expected)
     }
 
-    // ══════════════════════════════════════════════════════════════
-    //  2. persistCountdownState does nothing when no active session
-    // ══════════════════════════════════════════════════════════════
     @Test
     @DisplayName("persistCountdownState does nothing when no active session")
     fun persistCountdownState_noActiveSession_doesNothing() {
@@ -133,9 +114,6 @@ class ContinuousUsageTrackerTest {
         verify(repository, never()).updateContinuousSession(org.mockito.kotlin.any())
     }
 
-    // ══════════════════════════════════════════════════════════════
-    //  3. persistCountdownState updates the activeSession field
-    // ══════════════════════════════════════════════════════════════
     @Test
     @DisplayName("persistCountdownState updates the activeSession field")
     fun persistCountdownState_updatesActiveSessionField() {
@@ -155,93 +133,57 @@ class ContinuousUsageTrackerTest {
         assertEquals(now, updatedSession.updatedAt)
     }
 
-    // ══════════════════════════════════════════════════════════════
-    //  4. onCountdownHidden resets countdownShown flag
-    // ══════════════════════════════════════════════════════════════
     @Test
-    @DisplayName("onCountdownHidden resets countdownShown flag — next updateTracking can show countdown again")
-    fun onCountdownHidden_resetsCountdownShownFlag() {
-        // Drive tracker to a state where countdown is shown
-        // 20min limit, 900s used => 300s remaining (5min) => triggers SHOW_COUNTDOWN
-        val result1 = setupTrackingWithCountdown(
-            limitMinutes = 20,
-            sessionDurationSeconds = 900L
-        )
-        // After two updateTracking calls, countdown should be shown or updating
-        assertTrue(
-            result1.shouldShowCountdown || result1.shouldUpdateCountdown,
-            "After tracking, countdown should be shown or updating (got ${result1.action})"
-        )
+    @DisplayName("updateTracking 只返回会话活跃事实，不负责触发 REST")
+    fun updateTracking_returnsActiveFactOnly() {
+        configureDefaultTracking(limitMinutes = 20, sessionDurationSeconds = 900L)
 
-        // If countdown was shown, a subsequent call should NOT show a NEW countdown
-        // (it should be UPDATE_COUNTDOWN since countdownShown=true)
-        if (result1.shouldShowCountdown) {
-            val settings = ContinuousUsageSettings(enabled = true, limitMinutes = 20)
-            whenever(repository.getContinuousUsageSettings()).thenReturn(settings)
-            whenever(repository.getMonitoredApps()).thenReturn(
-                listOf(MonitoredApp("com.game.app", null))
-            )
-            whenever(repository.isMonitored("com.game.app")).thenReturn(true)
-            val session2 = activeSession(totalDurationSeconds = 910L)
-            whenever(repository.getActiveContinuousSession()).thenReturn(session2)
-            whenever(repository.updateContinuousSession(org.mockito.kotlin.any())).thenReturn(true)
+        tracker.updateTracking("com.game.app", 2_000_000L)
+        val result = tracker.updateTracking("com.game.app", 2_005_000L)
 
-            val result2 = tracker.updateTracking("com.game.app", 2_011_000L)
-            assertFalse(result2.shouldShowCountdown,
-                "Should not show NEW countdown when countdownShown=true (got ${result2.action})")
-        }
-
-        // Now hide the countdown
-        tracker.onCountdownHidden()
-
-        // Next call should be able to show countdown again
-        val settings3 = ContinuousUsageSettings(enabled = true, limitMinutes = 20)
-        whenever(repository.getContinuousUsageSettings()).thenReturn(settings3)
-        whenever(repository.getMonitoredApps()).thenReturn(
-            listOf(MonitoredApp("com.game.app", null))
-        )
-        whenever(repository.isMonitored("com.game.app")).thenReturn(true)
-        val session3 = activeSession(totalDurationSeconds = 920L)
-        whenever(repository.getActiveContinuousSession()).thenReturn(session3)
-        whenever(repository.updateContinuousSession(org.mockito.kotlin.any())).thenReturn(true)
-
-        val result3 = tracker.updateTracking("com.game.app", 2_012_000L)
-        assertTrue(result3.shouldShowCountdown,
-            "After onCountdownHidden, countdown can be shown again (got ${result3.action})")
+        assertEquals(NativeContinuousUsageTracker.TrackingAction.ACTIVE, result.action)
+        assertEquals(295L, result.remainingSeconds)
     }
 
-    // ══════════════════════════════════════════════════════════════
-    //  5. reset clears all tracking state
-    // ══════════════════════════════════════════════════════════════
     @Test
     @DisplayName("reset clears all tracking state")
     fun reset_clearsAllTrackingState() {
-        // Establish some state by simulating tracking
-        val settings = ContinuousUsageSettings(enabled = true, limitMinutes = 30)
-        whenever(repository.getContinuousUsageSettings()).thenReturn(settings)
-        whenever(repository.getMonitoredApps()).thenReturn(
-            listOf(MonitoredApp("com.game.app", null))
-        )
-        whenever(repository.isMonitored("com.game.app")).thenReturn(true)
-        val session = activeSession(totalDurationSeconds = 500L)
-        whenever(repository.getActiveContinuousSession()).thenReturn(session)
-        whenever(repository.updateContinuousSession(org.mockito.kotlin.any())).thenReturn(true)
-        whenever(repository.insertContinuousSession(org.mockito.kotlin.any())).thenReturn(1L)
+        configureDefaultTracking(limitMinutes = 30, sessionDurationSeconds = 500L)
 
-        // Simulate some tracking
         tracker.updateTracking("com.game.app", 2_000_000L)
-
-        // Before reset, state should be non-trivial
         assertNotNull(tracker.getActiveSession())
         assertNotNull(tracker.getCurrentTrackedApp())
         assertTrue(tracker.getRemainingSeconds() >= 0)
 
-        // Reset
         tracker.reset()
 
-        // After reset, everything should be cleared
-        assertNull(tracker.getActiveSession(), "activeSession should be null after reset")
-        assertNull(tracker.getCurrentTrackedApp(), "currentTrackedApp should be null after reset")
-        assertEquals(0L, tracker.getRemainingSeconds(), "remainingSeconds should be 0 after reset")
+        assertNull(tracker.getActiveSession())
+        assertNull(tracker.getCurrentTrackedApp())
+        assertEquals(0L, tracker.getRemainingSeconds())
+    }
+
+    @Test
+    @DisplayName("暂停超过阈值后停用 session")
+    fun nonMonitoredPause_deactivatesSession() {
+        configureDefaultTracking(limitMinutes = 30, sessionDurationSeconds = 500L)
+        whenever(repository.isMonitored("com.safe.app")).thenReturn(false)
+
+        tracker.updateTracking("com.game.app", 1_000_000L)
+        tracker.updateTracking("com.safe.app", 1_005_000L)
+        val result = tracker.updateTracking("com.safe.app", 1_065_000L)
+
+        assertEquals(NativeContinuousUsageTracker.TrackingAction.DEACTIVATED, result.action)
+        verify(repository).deactivateContinuousSession(1L)
+    }
+
+    @Test
+    @DisplayName("超过限制时返回 LIMIT_REACHED，由状态机决定是否进 REST")
+    fun overLimit_returnsLimitReached() {
+        configureDefaultTracking(limitMinutes = 10, sessionDurationSeconds = 599L)
+
+        tracker.updateTracking("com.game.app", 1_000_000L)
+        val result = tracker.updateTracking("com.game.app", 1_005_000L)
+
+        assertEquals(NativeContinuousUsageTracker.TrackingAction.LIMIT_REACHED, result.action)
     }
 }

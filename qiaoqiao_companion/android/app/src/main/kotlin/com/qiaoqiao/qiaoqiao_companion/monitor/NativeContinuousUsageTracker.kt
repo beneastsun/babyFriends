@@ -16,9 +16,18 @@ import java.util.Locale
  * 跟踪逻辑：
  * 1. 每5s轮询时调用 [updateTracking]
  * 2. 如果前台是监控应用，累加连续使用时间
- * 3. 剩余时间 <= 5min 时，通过回调触发显示倒计时悬浮窗
- * 4. 剩余时间 <= 0 时，触发强制休息（写 DB rest_end_time）
- * 5. 切换到非监控应用超过阈值时，停用会话
+ * 3. 状态机根据 session 数据决定是否显示/更新倒计时
+ * 4. 切换到非监控应用超过阈值时，停用会话
+ *
+ * 重构说明（单一时间源）：
+ * - 本类的秒累加（totalDurationSeconds）现在**仅作为 REST 触发的兜底判据**，
+ *   以及进程重启后恢复会话的持久化数据。
+ * - widget 上显示的倒计时数值、颜色阈值切换，统一由 wall-clock 单一源驱动
+ *   （NativeOverlayManager 的 countdownEndTimeMs + EnforcementEngine 读 DB 的
+ *   countdownStartedAt/countdownTotalSeconds），不再以本类的累加值为权威显示值。
+ * - 这样消除了"轮询累加"与"widget 自走倒计时"两套时间源漂移导致的计时不准与整秒抖动。
+ * - Doze/省电下轮询延迟导致累加漏计，只会让 REST 触发略晚（最多 5s），但 widget
+ *   显示始终精确，因为 widget 走的是 System.currentTimeMillis()。
  */
 class NativeContinuousUsageTracker(
     private val repository: NativeRuleRepository
@@ -43,17 +52,12 @@ class NativeContinuousUsageTracker(
     private var settingsCacheTime: Long = 0L
     private val SETTINGS_CACHE_TTL_MS = 30_000L
 
-    // 提醒是否已显示（避免每5s重复触发）
-    private var countdownShown: Boolean = false
-    // 当前显示的剩余秒数
-    private var currentRemainingSeconds: Long = 0L
-
     /**
      * 更新跟踪状态（每5s由 monitorRunnable 调用）
      *
      * @param packageName 当前前台应用包名
      * @param now 当前时间戳
-     * @return true 如果当前应用需要显示/更新倒计时
+     * @return 跟踪结果，仅表达会话事实，不表达 UI 决策
      */
     fun updateTracking(packageName: String, now: Long): TrackingResult {
         val settings = getSettings()
@@ -61,7 +65,6 @@ class NativeContinuousUsageTracker(
             return TrackingResult.noop()
         }
 
-        val isMonitored = repository.isMonitored(packageName)
         val monitoredApps = repository.getMonitoredApps()
         val appMonitored = monitoredApps.any { it.packageName == packageName }
 
@@ -101,7 +104,7 @@ class NativeContinuousUsageTracker(
                 } else 0L
                 if (inactiveDuration < RESTORE_THRESHOLD_MINUTES * 60L) {
                     Log.d(TAG, "Resumed session, remaining: ${settings.limitSeconds - session.totalDurationSeconds}s")
-                    return TrackingResult.resume()
+                    return TrackingResult.resume(settings.limitSeconds - session.totalDurationSeconds)
                 }
             }
             return TrackingResult.noop()
@@ -130,25 +133,12 @@ class NativeContinuousUsageTracker(
         // 计算剩余时间并返回结果
         val sessionDuration = activeSession?.totalDurationSeconds ?: 0L
         val remainingSeconds = settings.limitSeconds - sessionDuration
-        currentRemainingSeconds = remainingSeconds.coerceAtLeast(0)
 
         if (remainingSeconds <= 0) {
-            // 时间到，触发强制休息
-            triggerRest(settings)
-            return TrackingResult.restTriggered(0)
+            return TrackingResult.limitReached()
         }
 
-        if (remainingSeconds <= 5 * 60 && remainingSeconds < settings.limitSeconds && !countdownShown) {
-            countdownShown = true
-            return TrackingResult.showCountdown(remainingSeconds)
-        }
-
-        // 倒计时已经在显示，更新剩余时间
-        if (countdownShown) {
-            return TrackingResult.updateCountdown(remainingSeconds)
-        }
-
-        return TrackingResult.noop()
+        return TrackingResult.active(remainingSeconds)
     }
 
     /**
@@ -211,27 +201,6 @@ class NativeContinuousUsageTracker(
     }
 
     /**
-     * 触发强制休息
-     */
-    private fun triggerRest(settings: ContinuousUsageSettings) {
-        val now = System.currentTimeMillis()
-        val restEndTime = now + settings.restSeconds * 1000L
-
-        activeSession?.let { sess ->
-            val updatedSession = sess.copy(
-                totalDurationSeconds = settings.limitSeconds.coerceAtLeast(sess.totalDurationSeconds),
-                lastActivityTime = now,
-                restEndTime = restEndTime,
-                updatedAt = now
-            )
-            repository.updateContinuousSession(updatedSession)
-            activeSession = updatedSession
-        }
-        Log.d(TAG, "Rest triggered, ends in ${settings.restMinutes}min")
-        countdownShown = false
-    }
-
-    /**
      * 重置跟踪状态
      */
     fun reset() {
@@ -239,15 +208,17 @@ class NativeContinuousUsageTracker(
         activeSession = null
         lastPollTime = 0L
         pauseStartTime = 0L
-        countdownShown = false
-        currentRemainingSeconds = 0L
+        cachedSettings = null  // 清除缓存，下次 getSettings() 从 DB/SP 读取最新值
         Log.d(TAG, "Tracking reset")
     }
 
     /**
      * 获取当前剩余连续使用时间（秒）
      */
-    fun getRemainingSeconds(): Long = currentRemainingSeconds
+    fun getRemainingSeconds(): Long {
+        val session = activeSession ?: return 0L
+        return (getSettings().limitSeconds - session.totalDurationSeconds).coerceAtLeast(0)
+    }
 
     /**
      * 获取当前被跟踪的应用
@@ -275,9 +246,7 @@ class NativeContinuousUsageTracker(
     /**
      * 标记倒计时已隐藏（当用户离开监控应用时）
      */
-    fun onCountdownHidden() {
-        countdownShown = false
-    }
+    fun onCountdownHidden() = Unit
 
     /**
      * Persist countdown state to DB so engine can recover after process death.
@@ -304,24 +273,21 @@ class NativeContinuousUsageTracker(
     ) {
         companion object {
             fun noop() = TrackingResult(TrackingAction.NONE)
-            fun resume() = TrackingResult(TrackingAction.RESUME)
-            fun showCountdown(remaining: Long) = TrackingResult(TrackingAction.SHOW_COUNTDOWN, remaining)
-            fun updateCountdown(remaining: Long) = TrackingResult(TrackingAction.UPDATE_COUNTDOWN, remaining)
-            fun restTriggered(remaining: Long) = TrackingResult(TrackingAction.REST_TRIGGERED, remaining)
+            fun resume(remaining: Long) = TrackingResult(TrackingAction.RESUME, remaining.coerceAtLeast(0))
+            fun active(remaining: Long) = TrackingResult(TrackingAction.ACTIVE, remaining.coerceAtLeast(0))
+            fun limitReached() = TrackingResult(TrackingAction.LIMIT_REACHED)
             fun deactivated() = TrackingResult(TrackingAction.DEACTIVATED)
         }
 
-        val shouldShowCountdown: Boolean get() = action == TrackingAction.SHOW_COUNTDOWN
-        val shouldUpdateCountdown: Boolean get() = action == TrackingAction.UPDATE_COUNTDOWN
-        val isRestTriggered: Boolean get() = action == TrackingAction.REST_TRIGGERED
+        val isActive: Boolean get() = action == TrackingAction.ACTIVE
+        val isLimitReached: Boolean get() = action == TrackingAction.LIMIT_REACHED
     }
 
     enum class TrackingAction {
         NONE,
         RESUME,
-        SHOW_COUNTDOWN,
-        UPDATE_COUNTDOWN,
-        REST_TRIGGERED,
+        ACTIVE,
+        LIMIT_REACHED,
         DEACTIVATED
     }
 }

@@ -45,6 +45,14 @@ object AppLockManager {
     }
 
     /**
+     * 清除上次触发时间
+     */
+    fun clearLastTriggerTime(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().remove(KEY_LAST_TRIGGER_TIME).apply()
+    }
+
+    /**
      * 判断是否应该显示锁屏（跨进程安全）
      * 条件：锁屏启用 + 最近 5 分钟内被触发过（即 App 被滑掉后需要重新锁定）
      */

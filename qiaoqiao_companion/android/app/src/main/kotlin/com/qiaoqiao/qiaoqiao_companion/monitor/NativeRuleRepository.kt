@@ -1,6 +1,7 @@
 package com.qiaoqiao.qiaoqiao_companion.monitor
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.database.sqlite.SQLiteDatabase
 import android.util.Log
 import java.io.File
@@ -30,6 +31,10 @@ class NativeRuleRepository(private val context: Context) {
         private const val DEFAULT_LIMIT_MINUTES = 30
         private const val DEFAULT_REST_MINUTES = 10
         private const val DEFAULT_RESET_AFTER_REST_MINUTES = 1
+
+        // Flutter SharedPreferences fallback
+        private const val FLUTTER_SHARED_PREFS_NAME = "FlutterSharedPreferences"
+        private const val FLUTTER_KEY_PREFIX = "flutter."
     }
 
     private var db: SQLiteDatabase? = null
@@ -353,36 +358,105 @@ class NativeRuleRepository(private val context: Context) {
 
     /**
      * 获取连续使用设置
-     * 从 app_settings 表读取（Flutter 侧每次设置变更时写入），
-     * 不依赖 SharedPreferences，原生侧始终可读。
+     * 优先从 app_settings 表读取（Flutter 侧每次设置变更时写入），
+     * 当 DB 缺少 key 或读取失败时，fallback 到 Flutter SharedPreferences。
      */
     fun getContinuousUsageSettings(): ContinuousUsageSettings {
-        val database = openDatabase() ?: return ContinuousUsageSettings()
+        val database = openDatabase()
 
-        return try {
-            // 批量读取 4 个设置 key
-            val cursor = database.query(
-                "app_settings",
-                arrayOf("key", "value"),
-                "key IN (?, ?, ?, ?)",
-                arrayOf(KEY_ENABLED, KEY_LIMIT_MINUTES, KEY_REST_MINUTES, KEY_RESET_AFTER_REST_MINUTES),
-                null, null, null
-            )
-            val map = mutableMapOf<String, String>()
-            cursor.use {
-                while (it.moveToNext()) {
-                    map[it.getString(0)] = it.getString(1)
+        if (database != null) {
+            try {
+                // 批量读取 4 个设置 key
+                val cursor = database.query(
+                    "app_settings",
+                    arrayOf("key", "value"),
+                    "key IN (?, ?, ?, ?)",
+                    arrayOf(KEY_ENABLED, KEY_LIMIT_MINUTES, KEY_REST_MINUTES, KEY_RESET_AFTER_REST_MINUTES),
+                    null, null, null
+                )
+                val map = mutableMapOf<String, String>()
+                cursor.use {
+                    while (it.moveToNext()) {
+                        map[it.getString(0)] = it.getString(1)
+                    }
                 }
+
+                val dbSettings = ContinuousUsageSettings(
+                    enabled = map[KEY_ENABLED]?.toBoolean() ?: DEFAULT_CONTINUOUS_ENABLED,
+                    limitMinutes = map[KEY_LIMIT_MINUTES]?.toIntOrNull() ?: DEFAULT_LIMIT_MINUTES,
+                    restMinutes = map[KEY_REST_MINUTES]?.toIntOrNull() ?: DEFAULT_REST_MINUTES,
+                    resetAfterRestMinutes = map[KEY_RESET_AFTER_REST_MINUTES]?.toIntOrNull() ?: DEFAULT_RESET_AFTER_REST_MINUTES
+                )
+
+                // 如果 DB 中所有值都是默认值，尝试从 SharedPreferences fallback
+                // 场景：DB 写入失败或原生服务先于 Flutter 引擎启动
+                if (isAllDefaults(dbSettings, map)) {
+                    val spSettings = readSettingsFromSharedPreferences()
+                    val merged = mergeWithFallback(dbSettings, spSettings, map)
+                    if (merged != dbSettings) {
+                        Log.w(TAG, "Settings fallback: DB had defaults/missing, merged from SharedPreferences")
+                    }
+                    return merged
+                }
+
+                return dbSettings
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to read continuous usage settings from DB, falling back to SharedPreferences", e)
+                return readSettingsFromSharedPreferences()
             }
+        }
+
+        // DB 打开失败，直接 fallback 到 SharedPreferences
+        Log.w(TAG, "DB not available, reading settings from SharedPreferences")
+        return readSettingsFromSharedPreferences()
+    }
+
+    /**
+     * 检查 DB 读取的设置是否全部为默认值且 DB 中可能缺少 key
+     * 当 map 中缺少某个 key 时，该字段使用了默认值，需要从 SP fallback
+     */
+    private fun isAllDefaults(settings: ContinuousUsageSettings, map: Map<String, String>): Boolean {
+        return !map.containsKey(KEY_ENABLED) ||
+               !map.containsKey(KEY_LIMIT_MINUTES) ||
+               !map.containsKey(KEY_REST_MINUTES) ||
+               !map.containsKey(KEY_RESET_AFTER_REST_MINUTES)
+    }
+
+    /**
+     * 合并 DB 设置和 SharedPreferences 设置
+     * DB 有值时优先使用 DB 值，DB 缺少 key 时使用 SP 值
+     */
+    private fun mergeWithFallback(
+        dbSettings: ContinuousUsageSettings,
+        spSettings: ContinuousUsageSettings,
+        dbMap: Map<String, String>
+    ): ContinuousUsageSettings {
+        return ContinuousUsageSettings(
+            enabled = if (dbMap.containsKey(KEY_ENABLED)) dbSettings.enabled else spSettings.enabled,
+            limitMinutes = if (dbMap.containsKey(KEY_LIMIT_MINUTES)) dbSettings.limitMinutes else spSettings.limitMinutes,
+            restMinutes = if (dbMap.containsKey(KEY_REST_MINUTES)) dbSettings.restMinutes else spSettings.restMinutes,
+            resetAfterRestMinutes = if (dbMap.containsKey(KEY_RESET_AFTER_REST_MINUTES)) dbSettings.resetAfterRestMinutes else spSettings.resetAfterRestMinutes
+        )
+    }
+
+    /**
+     * 从 Flutter SharedPreferences 读取连续使用设置作为 fallback
+     * Flutter SharedPreferences 文件名: "FlutterSharedPreferences"
+     * Key 前缀: "flutter."（Flutter shared_preferences 包自动添加）
+     * Int 类型存储为 Long
+     */
+    private fun readSettingsFromSharedPreferences(): ContinuousUsageSettings {
+        return try {
+            val prefs = context.getSharedPreferences(FLUTTER_SHARED_PREFS_NAME, Context.MODE_PRIVATE)
 
             ContinuousUsageSettings(
-                enabled = map[KEY_ENABLED]?.toBoolean() ?: DEFAULT_CONTINUOUS_ENABLED,
-                limitMinutes = map[KEY_LIMIT_MINUTES]?.toIntOrNull() ?: DEFAULT_LIMIT_MINUTES,
-                restMinutes = map[KEY_REST_MINUTES]?.toIntOrNull() ?: DEFAULT_REST_MINUTES,
-                resetAfterRestMinutes = map[KEY_RESET_AFTER_REST_MINUTES]?.toIntOrNull() ?: DEFAULT_RESET_AFTER_REST_MINUTES
+                enabled = prefs.getBoolean(FLUTTER_KEY_PREFIX + KEY_ENABLED, DEFAULT_CONTINUOUS_ENABLED),
+                limitMinutes = prefs.getLong(FLUTTER_KEY_PREFIX + KEY_LIMIT_MINUTES, DEFAULT_LIMIT_MINUTES.toLong()).toInt(),
+                restMinutes = prefs.getLong(FLUTTER_KEY_PREFIX + KEY_REST_MINUTES, DEFAULT_REST_MINUTES.toLong()).toInt(),
+                resetAfterRestMinutes = prefs.getLong(FLUTTER_KEY_PREFIX + KEY_RESET_AFTER_REST_MINUTES, DEFAULT_RESET_AFTER_REST_MINUTES.toLong()).toInt()
             )
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to read continuous usage settings from DB", e)
+            Log.e(TAG, "Failed to read settings from Flutter SharedPreferences", e)
             ContinuousUsageSettings()
         }
     }
