@@ -86,6 +86,9 @@ object UsageStatsHelper {
         var lastResumedTime: Long = 0
         var lastPausedPackage: String? = null
         var lastPausedTime: Long = 0
+        // 标志：queryEvents 明确检测到最后 RESUMED 已被同包的 PAUSED 覆盖（用户确实离开了）
+        // 此时不走 fallback / sticky cache，避免把已离开的 app 重新拉回前台
+        var lastResumedWasPaused = false
 
         while (usageEvents.hasNextEvent()) {
             val event = UsageEvents.Event()
@@ -123,18 +126,27 @@ object UsageStatsHelper {
             } else {
                 result = lastResumedPackage
             }
+        } else if (lastResumedPackage != null &&
+            lastPausedPackage == lastResumedPackage && lastPausedTime >= lastResumedTime) {
+            // 最后的 RESUMED 已被同包的 PAUSED 覆盖 — 用户明确离开了该 app
+            // （例如按 HOME 回桌面，launcher 被过滤后窗口内只剩该 app 的 RESUMED+PAUSED）
+            // 此时绝不能走 fallback / sticky cache 把它拉回来
+            lastResumedWasPaused = true
+            Log.d(TAG, "getCurrentForegroundApp: last resumed ($lastResumedPackage) was PAUSED, " +
+                    "skipping fallbacks (resumed=$lastResumedTime, paused=$lastPausedTime)")
         }
 
         // 兜底：如果 queryEvents 没有找到前台 app（MIUI 上常见），使用 queryUsageStats
         // 放宽阈值动态化：max(20分钟, queryWindowMs/4)，与查询窗口成正比
-        if (result == null && !selfAppDetected) {
+        // 注意：lastResumedWasPaused 时不走 fallback — queryEvents 已明确给出离开信号
+        if (result == null && !selfAppDetected && !lastResumedWasPaused) {
             val relaxedThresholdMs = maxOf(20 * 60 * 1000L, queryWindowMs / 4)
             result = queryUsageStatsFallback(usageStatsManager, endTime, excludePackage, relaxedThresholdMs)
         }
 
         // 二级 fallback：使用 ForegroundAppWatcher（AccessibilityService）
         // 在 MIUI 上 queryEvents 和 queryUsageStats 都可能不可靠时，AccessibilityService 最为精确
-        if (result == null && !selfAppDetected) {
+        if (result == null && !selfAppDetected && !lastResumedWasPaused) {
             val watcherApp = com.qiaoqiao.qiaoqiao_companion.services.ForegroundAppWatcher
                 .getLastForegroundApp(excludePackage)
             if (watcherApp != null) {
@@ -172,6 +184,13 @@ object UsageStatsHelper {
                         "keeping sticky cache for $lastKnownForegroundApp " +
                         "(age=${(endTime - lastKnownForegroundTime) / 1000}s)")
             }
+        } else if (result == null && lastResumedWasPaused) {
+            // queryEvents 明确检测到最后 RESUMED 已被 PAUSED — 用户离开了
+            // 清除 sticky cache，不使用它（避免把已离开的 app 拉回来当前台）
+            if (lastKnownForegroundApp != null) {
+                Log.d(TAG, "getCurrentForegroundApp: clearing sticky cache — $lastKnownForegroundApp was PAUSED")
+                lastKnownForegroundApp = null
+            }
         } else if (result == null) {
             val cachedApp = lastKnownForegroundApp
             if (cachedApp != null && cachedApp != excludePackage &&
@@ -193,7 +212,7 @@ object UsageStatsHelper {
         lastDetectionWasSelfApp = selfAppDetected && result == null
 
         Log.d(TAG, "getCurrentForegroundApp: result=$result, lastResumedPackage=$lastResumedPackage, " +
-                "lastPausedPackage=$lastPausedPackage, selfApp=$selfAppDetected")
+                "lastPausedPackage=$lastPausedPackage, selfApp=$selfAppDetected, wasPaused=$lastResumedWasPaused")
         return result
     }
 
