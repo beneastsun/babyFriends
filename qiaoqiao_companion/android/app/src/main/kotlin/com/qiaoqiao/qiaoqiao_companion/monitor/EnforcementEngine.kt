@@ -49,6 +49,10 @@ class EnforcementEngine(
         private const val UNKNOWN_LEAVE_GRACE_MS = 15_000L
         /** 家长覆盖后的宽限期（毫秒）：在此期间不会对同一 app 重新触发限制 */
         private const val PARENT_OVERRIDE_GRACE_MS = 30_000L // 30秒
+        /** 时间范围违规的固定休息时长（1 分钟） */
+        private const val TIME_PERIOD_REST_SECONDS = 60
+        /** 时间范围违规关闭后的防抖时间（毫秒）：让 launchMainActivity 有时间切走，避免立即重弹 */
+        private const val TIME_PERIOD_DISMISS_DEBOUNCE_MS = 3_000L
     }
 
     var state: EngineState = EngineState.IDLE
@@ -66,6 +70,14 @@ class EnforcementEngine(
     private var overlayShowing = false
     // Timestamp of last parent override — used to prevent immediate re-trigger
     private var parentOverrideUntil: Long = 0L
+    // 当前 REST 的违规类型："continuous"（连续使用）或 "time_period"（时间范围违规）
+    private var currentViolationType: String = "continuous"
+    // 时间范围违规防抖截止时间（墙上时钟 ms）：密码/按钮关闭后 3s 防抖，让 launchMainActivity 切走，
+    // 防抖期过后切回受限 app 立即重新弹窗
+    private var timePeriodOverrideUntil: Long = 0L
+    // 时间范围违规的休息结束时间（墙上时钟 ms）：用于 handleRestState 判断休息是否结束
+    // （时间范围违规可能无 continuous session，不能依赖 session.restEndTime）
+    private var timePeriodRestEndTime: Long = 0L
 
     /**
      * Process a monitoring poll.
@@ -114,7 +126,16 @@ class EnforcementEngine(
         // 2. Rule evaluation (time period, total time, daily limit, forced rest)
         val ruleResult = ruleEvaluator.evaluate(foregroundApp!!, now)
         if (ruleResult.blocked) {
-            enterRest(ruleResult.reason, foregroundApp, now)
+            val isTimePeriod = ruleResult.ruleType == "time_period"
+            // 时间范围违规防抖期内：跳过监控，让 launchMainActivity 有时间切到纹纹小伙伴，
+            // 避免关闭弹窗瞬间立即重弹。防抖期过后切回受限 app 立即重新弹窗。
+            if (isTimePeriod && now < timePeriodOverrideUntil) {
+                Log.d(TAG, "onPoll: time period dismiss debounce active (remaining=${(timePeriodOverrideUntil - now) / 1000}s), skipping")
+                return
+            }
+            val restDuration = if (isTimePeriod) TIME_PERIOD_REST_SECONDS else null
+            val violationType = if (isTimePeriod) "time_period" else "continuous"
+            enterRest(ruleResult.reason, foregroundApp, now, restDuration, violationType)
             return
         }
 
@@ -235,10 +256,18 @@ class EnforcementEngine(
                 repository.deactivateContinuousSession(session.id ?: return)
             }
             usageTracker.reset()
+            // 时间范围违规：按钮关闭设置 3s 防抖，让 launchMainActivity 有时间切到纹纹小伙伴，
+            // 防抖期过后切回受限 app 立即重新弹窗（不再当天放行）
+            if (currentViolationType == "time_period") {
+                timePeriodOverrideUntil = System.currentTimeMillis() + TIME_PERIOD_DISMISS_DEBOUNCE_MS
+                timePeriodRestEndTime = 0L
+                Log.d(TAG, "REST → IDLE: user dismissed time_period overlay, debounce ${TIME_PERIOD_DISMISS_DEBOUNCE_MS / 1000}s")
+            }
             state = EngineState.IDLE
             restCompleted = false
             resetPendingLeave()
             trackedApp = null
+            currentViolationType = "continuous"
             Log.d(TAG, "REST → IDLE: user dismissed overlay (session deactivated, tracker reset)")
         }
     }
@@ -255,7 +284,19 @@ class EnforcementEngine(
             resetPendingLeave()
             trackedApp = null
 
-            // Check if we can enter COUNTDOWN for this app
+            // 时间范围违规：在受监控 app 上关闭设置 3s 防抖，直接转 IDLE（不进入 COUNTDOWN 显示 widget）。
+            // 防抖期过后切回受限 app 立即重新弹窗（不再当天放行）
+            val wasTimePeriod = currentViolationType == "time_period"
+            if (wasTimePeriod) {
+                timePeriodOverrideUntil = System.currentTimeMillis() + TIME_PERIOD_DISMISS_DEBOUNCE_MS
+                timePeriodRestEndTime = 0L
+                currentViolationType = "continuous"
+                state = EngineState.IDLE
+                Log.d(TAG, "REST → IDLE: user dismissed time_period overlay on monitored app, debounce ${TIME_PERIOD_DISMISS_DEBOUNCE_MS / 1000}s")
+                return
+            }
+
+            // 连续使用违规：检查是否能进入 COUNTDOWN 继续倒计时
             val session = repository.getActiveContinuousSession()
             val settings = repository.getContinuousUsageSettings()
 
@@ -317,10 +358,18 @@ class EnforcementEngine(
                 repository.deactivateContinuousSession(session.id ?: return)
             }
             usageTracker.reset()
+            // 时间范围违规：密码关闭设置 3s 防抖，让 launchMainActivity 有时间切走，
+            // 防抖期过后切回受限 app 立即重新弹窗（不再当天放行）
+            if (currentViolationType == "time_period") {
+                timePeriodOverrideUntil = System.currentTimeMillis() + TIME_PERIOD_DISMISS_DEBOUNCE_MS
+                timePeriodRestEndTime = 0L
+                Log.d(TAG, "REST → IDLE: parent override for time_period, debounce ${TIME_PERIOD_DISMISS_DEBOUNCE_MS / 1000}s")
+            }
             state = EngineState.IDLE
             restCompleted = false
             resetPendingLeave()
             trackedApp = null
+            currentViolationType = "continuous"
             // Set grace period to prevent immediate re-trigger
             parentOverrideUntil = System.currentTimeMillis() + PARENT_OVERRIDE_GRACE_MS
             Log.d(TAG, "REST → IDLE: parent override dismiss (grace=${PARENT_OVERRIDE_GRACE_MS / 1000}s)")
@@ -394,9 +443,7 @@ class EnforcementEngine(
      * - If rest ended and user away from monitored app → hide overlay, transition to IDLE
      */
     private fun handleRestState(now: Long, foregroundApp: String?, selfAppForeground: Boolean) {
-        val session = repository.getActiveContinuousSession()
         val isOnMonitoredApp = isMonitoredApp(foregroundApp)
-        val restStillActive = session != null && session.restEndTime != null && session.restEndTime!! > now
 
         // If user is actively entering password, don't hide/show overlay based on foregroundApp changes.
         // Soft keyboard may cause foregroundApp detection to return null/wrong app.
@@ -405,6 +452,59 @@ class EnforcementEngine(
             Log.d(TAG, "REST: password input active, skipping overlay visibility change")
             return
         }
+
+        // 时间范围违规：休息倒计时由 overlay 内部 ticker 管理（归零时自动 markRestEnded 启用按钮）
+        // 不依赖 session（时间范围违规可能无 continuous session），不调用 markRestEnded（避免提前启用按钮）
+        // handleRestState 只负责：用户离开受监控 app 时隐藏 overlay；用户切回时按剩余时间重新显示
+        if (currentViolationType == "time_period") {
+            val restStillActive = now < timePeriodRestEndTime
+            if (restStillActive) {
+                if (isOnMonitoredApp) {
+                    resetPendingLeave()
+                    // 用户在受监控 app 上 — 如果 overlay 未显示（如切后台后切回），按剩余时间重新显示
+                    if (!overlayShowing && foregroundApp != null) {
+                        val restRemainingSec = ((timePeriodRestEndTime - now) / 1000L).toInt().coerceAtLeast(0)
+                        overlayManager.showLockOverlay("正在休息中...", foregroundApp, restRemainingSec, "time_period")
+                        overlayShowing = true
+                        Log.d(TAG, "REST(time_period): re-showed overlay (countdown=${restRemainingSec}s)")
+                    }
+                } else if (foregroundApp != null || selfAppForeground) {
+                    resetPendingLeave()
+                    // 用户离开受监控 app — 隐藏 overlay
+                    if (overlayShowing) {
+                        overlayManager.hideOverlay()
+                        overlayShowing = false
+                        Log.d(TAG, "REST(time_period): user left monitored app, overlay hidden")
+                    }
+                }
+            } else {
+                // 1 分钟倒计时已结束（ticker 已自动 markRestEnded 启用按钮）
+                if (isOnMonitoredApp) {
+                    resetPendingLeave()
+                    // 用户仍在受监控 app — 调用 markRestEnded 确保按钮启用（覆盖 ticker 被取消的场景）
+                    overlayManager.markRestEnded()
+                    Log.d(TAG, "REST(time_period): rest ended, user on monitored app, waiting for manual dismiss")
+                } else if (foregroundApp != null || selfAppForeground) {
+                    resetPendingLeave()
+                    // 用户已离开受监控 app — 隐藏 overlay，转 IDLE
+                    if (overlayShowing) {
+                        overlayManager.hideOverlay()
+                        overlayShowing = false
+                    }
+                    state = EngineState.IDLE
+                    restCompleted = false
+                    trackedApp = null
+                    timePeriodRestEndTime = 0L
+                    currentViolationType = "continuous"
+                    Log.d(TAG, "REST(time_period) → IDLE: rest ended, user away from monitored app")
+                }
+            }
+            return
+        }
+
+        // 连续使用违规的原有逻辑
+        val session = repository.getActiveContinuousSession()
+        val restStillActive = session != null && session.restEndTime != null && session.restEndTime!! > now
 
         if (restStillActive) {
             // Rest is still counting down
@@ -462,11 +562,19 @@ class EnforcementEngine(
         }
     }
 
-    private fun enterRest(reason: String, packageName: String, now: Long) {
+    private fun enterRest(
+        reason: String,
+        packageName: String,
+        now: Long,
+        restDurationSeconds: Int? = null,
+        violationType: String = "continuous"
+    ) {
         val settings = repository.getContinuousUsageSettings()
+        val restSeconds = restDurationSeconds ?: settings.restSeconds.toInt()
         val session = repository.getActiveContinuousSession()
-        if (session != null) {
-            val restEndTime = now + settings.restSeconds * 1000L
+        // 时间范围违规：不更新 session（1 分钟休息与连续使用会话无关，避免 restoreFromDB 误恢复为连续使用违规）
+        if (session != null && violationType != "time_period") {
+            val restEndTime = now + restSeconds * 1000L
             repository.updateContinuousSession(session.copy(
                 totalDurationSeconds = settings.limitSeconds.coerceAtLeast(session.totalDurationSeconds),
                 restEndTime = restEndTime,
@@ -475,9 +583,16 @@ class EnforcementEngine(
                 updatedAt = now
             ))
         }
+        currentViolationType = violationType
+        // 时间范围违规：记录休息结束时间（handleRestState 用它判断休息是否结束，不依赖 session）
+        if (violationType == "time_period") {
+            timePeriodRestEndTime = now + restSeconds * 1000L
+        } else {
+            timePeriodRestEndTime = 0L
+        }
         widgetManager.hideCountdown()
         resetPendingLeave()
-        overlayManager.showLockOverlay(reason, packageName, settings.restSeconds.toInt())
+        overlayManager.showLockOverlay(reason, packageName, restSeconds, violationType)
         overlayShowing = true
         restCompleted = false
         state = EngineState.REST
@@ -485,7 +600,7 @@ class EnforcementEngine(
         // Move the monitored app to background (same as pressing HOME)
         moveToBackground()
 
-        Log.d(TAG, "→ REST: $reason, restSeconds=${settings.restSeconds}")
+        Log.d(TAG, "→ REST: $reason, restSeconds=$restSeconds, violationType=$violationType")
     }
 
     /**

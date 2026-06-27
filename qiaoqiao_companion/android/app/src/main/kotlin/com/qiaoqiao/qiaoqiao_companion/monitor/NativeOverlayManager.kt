@@ -128,8 +128,9 @@ class NativeOverlayManager(private val context: Context) {
      * @param reason 阻止原因
      * @param packageName 被阻止的应用包名
      * @param durationSeconds 可选：休息倒计时秒数（0=不显示倒计时）
+     * @param violationType 违规类型："continuous"（连续使用）或 "time_period"（时间范围违规）
      */
-    fun showLockOverlay(reason: String, packageName: String, durationSeconds: Int = 0) {
+    fun showLockOverlay(reason: String, packageName: String, durationSeconds: Int = 0, violationType: String = "continuous") {
         if (!hasOverlayPermission()) {
             Log.w(TAG, "No overlay permission, cannot show lock")
             return
@@ -160,7 +161,7 @@ class NativeOverlayManager(private val context: Context) {
         try {
             currentBlockedPackage = packageName
             windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-            overlayView = createLockView(reason, durationSeconds)
+            overlayView = createLockView(reason, durationSeconds, violationType)
 
             val flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                     WindowManager.LayoutParams.FLAG_FULLSCREEN or
@@ -278,10 +279,12 @@ class NativeOverlayManager(private val context: Context) {
      * 使用与 OverlayChannel 相同的糖果主题配色
      * 包含锁定内容和密码输入两种模式，点击"家长入口"切换到密码输入模式
      */
-    private fun createLockView(reason: String, durationSeconds: Int = 0): View {
-        val candyPurple = 0xFFB57EDC.toInt()
-        val candyPeach = 0xFFFFAB91.toInt()
-        val candyRed = 0xFFFF6B6B.toInt()
+    private fun createLockView(reason: String, durationSeconds: Int = 0, violationType: String = "continuous"): View {
+        // 根据 violationType 选择主题色：时间范围违规用蓝色系，连续使用违规用原紫色糖果色
+        val isTimePeriod = violationType == "time_period"
+        val candyPurple = if (isTimePeriod) 0xFF5C6BC0.toInt() else 0xFFB57EDC.toInt() // 时间违规：靛蓝
+        val candyPeach = if (isTimePeriod) 0xFF42A5F5.toInt() else 0xFFFFAB91.toInt()  // 时间违规：蓝色
+        val candyRed = 0xFFFF6B6B.toInt() // 按钮红色保持一致
 
         val density = context.resources.displayMetrics.density
 
@@ -293,7 +296,7 @@ class NativeOverlayManager(private val context: Context) {
         }
 
         // 锁定内容视图
-        val lockContent = createLockContentView(reason, durationSeconds, candyPurple, candyPeach, candyRed, density)
+        val lockContent = createLockContentView(reason, durationSeconds, candyPurple, candyPeach, candyRed, density, violationType)
 
         // 密码输入视图（初始隐藏）
         val passwordContent = createPasswordContentView(candyPurple, candyPeach, density)
@@ -313,7 +316,8 @@ class NativeOverlayManager(private val context: Context) {
     /**
      * 创建锁定内容视图（锁定模式）
      */
-    private fun createLockContentView(reason: String, durationSeconds: Int, candyPurple: Int, candyPeach: Int, candyRed: Int, density: Float): View {
+    private fun createLockContentView(reason: String, durationSeconds: Int, candyPurple: Int, candyPeach: Int, candyRed: Int, density: Float, violationType: String = "continuous"): View {
+        val isTimePeriod = violationType == "time_period"
         // 内容卡片 - 圆角渐变背景
         val card = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -354,7 +358,7 @@ class NativeOverlayManager(private val context: Context) {
         iconContainer.addView(iconBackground)
 
         val iconEmoji = TextView(context).apply {
-            text = "🔒"
+            text = if (isTimePeriod) "🕐" else "🔒"
             textSize = 52f
             gravity = Gravity.CENTER
             layoutParams = FrameLayout.LayoutParams(
@@ -366,7 +370,7 @@ class NativeOverlayManager(private val context: Context) {
 
         // 标题
         val titleView = TextView(context).apply {
-            text = "使用时间到啦！"
+            text = if (isTimePeriod) "现在不是使用时间" else "使用时间到啦！"
             textSize = 22f
             setTextColor(0xFFFFFFFF.toInt())
             gravity = Gravity.CENTER
