@@ -268,8 +268,10 @@ class UsageStatsChannel(private val context: Context) : MethodChannel.MethodCall
 
         val usageEvents = usageStatsManager.queryEvents(startTime, endTime)
 
-        // 记录每个应用的最后 resume 时间
-        val lastResumeTime = mutableMapOf<String, Long>()
+        // 当前前台应用（全局单一，确保同一时间只有一个应用累计时长）
+        // pad 屏幕同一时间只能有一个 app 在前台，因此单小时所有应用累加 ≤ 60 分钟
+        var currentForegroundApp: String? = null
+        var currentForegroundResumeTime: Long = 0L
 
         // 按包名 -> 小时 -> 累计时长（毫秒）
         val hourlyMap = mutableMapOf<String, MutableMap<Int, Long>>()
@@ -307,7 +309,16 @@ class UsageStatsChannel(private val context: Context) : MethodChannel.MethodCall
             }
         }
 
-        // 获取时区偏移（用于将时间戳转换为本地小时）
+        // 结算当前前台应用：用给定时间戳作为 pause，累计时长并清空前台状态
+        fun settleCurrentForeground(pauseTime: Long) {
+            val app = currentForegroundApp
+            if (app != null && pauseTime > currentForegroundResumeTime) {
+                addDurationToHourlyMap(app, currentForegroundResumeTime, pauseTime)
+            }
+            currentForegroundApp = null
+            currentForegroundResumeTime = 0L
+        }
+
         val calendar = java.util.Calendar.getInstance()
 
         while (usageEvents.hasNextEvent()) {
@@ -323,15 +334,18 @@ class UsageStatsChannel(private val context: Context) : MethodChannel.MethodCall
 
             when (event.eventType) {
                 UsageEvents.Event.ACTIVITY_RESUMED -> {
-                    lastResumeTime[packageName] = event.timeStamp
+                    // 新应用进入前台：若当前已有不同前台应用，先用当前事件时间结算旧应用
+                    // （pad 同一时间只有一个前台应用，新 RESUMED 意味着旧应用已失焦）
+                    if (currentForegroundApp != null && currentForegroundApp != packageName) {
+                        settleCurrentForeground(event.timeStamp)
+                    }
+                    currentForegroundApp = packageName
+                    currentForegroundResumeTime = event.timeStamp
                 }
                 UsageEvents.Event.ACTIVITY_PAUSED -> {
-                    val resumeTime = lastResumeTime[packageName]
-                    if (resumeTime != null && event.timeStamp > resumeTime) {
-                        addDurationToHourlyMap(packageName, resumeTime, event.timeStamp)
-
-                        // 清除 resume 时间
-                        lastResumeTime.remove(packageName)
+                    // 仅当 pause 的是当前前台应用时才结算，避免时序异常导致重复累计
+                    if (currentForegroundApp == packageName) {
+                        settleCurrentForeground(event.timeStamp)
                     }
                 }
             }
@@ -342,12 +356,11 @@ class UsageStatsChannel(private val context: Context) : MethodChannel.MethodCall
             }
         }
 
-        for ((packageName, resumeTime) in lastResumeTime) {
-            if (endTime > resumeTime) {
-                addDurationToHourlyMap(packageName, resumeTime, endTime)
-                if (!appNames.containsKey(packageName)) {
-                    appNames[packageName] = getAppName(packageName)
-                }
+        // 查询窗口结束时仍在前台的应用：用 endTime 结算（最多一个应用）
+        if (currentForegroundApp != null && endTime > currentForegroundResumeTime) {
+            addDurationToHourlyMap(currentForegroundApp!!, currentForegroundResumeTime, endTime)
+            if (!appNames.containsKey(currentForegroundApp)) {
+                appNames[currentForegroundApp!!] = getAppName(currentForegroundApp!!)
             }
         }
 

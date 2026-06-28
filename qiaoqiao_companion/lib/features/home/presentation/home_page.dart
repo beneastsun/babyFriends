@@ -55,7 +55,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                 Padding(
                   padding: const EdgeInsets.only(
                     top: DesignTokens.space8,
-                    bottom: DesignTokens.space20,
+                    bottom: DesignTokens.space16,
                   ),
                   child: Row(
                     children: [
@@ -83,7 +83,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                     message: '新的一天开始啦，我们一起加油！',
                   ),
                 ),
-                const SizedBox(height: DesignTokens.space20),
+                const SizedBox(height: DesignTokens.space16),
 
                 // 日/周维度切换器
                 _DimensionSwitcher(
@@ -96,7 +96,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                     });
                   },
                 ),
-                const SizedBox(height: DesignTokens.space20),
+                const SizedBox(height: DesignTokens.space16),
 
                 // 根据维度显示不同内容
                 if (dimension == HomeViewDimension.day)
@@ -244,8 +244,8 @@ class _SwitcherButton extends ConsumerWidget {
         duration: DesignTokens.animationNormal,
         curve: Curves.easeOutCubic,
         padding: const EdgeInsets.symmetric(
-          horizontal: DesignTokens.space20,
-          vertical: DesignTokens.space10,
+          horizontal: DesignTokens.space16,
+          vertical: DesignTokens.space8,
         ),
         decoration: BoxDecoration(
           color: isSelected ? AppSolidColors.getPrimaryColor(themeType, false) : null,
@@ -291,7 +291,7 @@ class _DayViewContent extends ConsumerWidget {
           onHourSelected: onHourSelected,
           onRefresh: onRefresh,
         ),
-        const SizedBox(height: DesignTokens.space20),
+        const SizedBox(height: DesignTokens.space16),
         AppUsageList(
           maxItems: 5,
           filter: filter,
@@ -391,13 +391,13 @@ class _WeekViewReport extends ConsumerWidget {
             ),
           ),
         ),
-        const SizedBox(height: DesignTokens.space20),
+        const SizedBox(height: DesignTokens.space16),
         _DailyUsageChart(
           dailyUsages: report.dailyUsages,
           selectedDate: selectedDate,
           onDateSelected: onDateSelected,
         ),
-        const SizedBox(height: DesignTokens.space20),
+        const SizedBox(height: DesignTokens.space16),
         AppUsageList(
           maxItems: 5,
           filter: filter,
@@ -678,7 +678,7 @@ class _QiaoqiaoCardState extends ConsumerState<_QiaoqiaoCard> {
     return AppCard(
       type: AppCardType.glass,
       child: Padding(
-        padding: const EdgeInsets.all(DesignTokens.space20),
+        padding: const EdgeInsets.all(DesignTokens.space16),
         child: Row(
           children: [
             // 头像
@@ -687,8 +687,8 @@ class _QiaoqiaoCardState extends ConsumerState<_QiaoqiaoCard> {
               child: Stack(
                 children: [
                   Container(
-                    width: 88,
-                    height: 88,
+                    width: 76,
+                    height: 76,
                     decoration: BoxDecoration(
                       color: AppSolidColors.qiaoqiaoHappy,
                       borderRadius: BorderRadius.circular(DesignTokens.radius24),
@@ -710,15 +710,15 @@ class _QiaoqiaoCardState extends ConsumerState<_QiaoqiaoCard> {
                                 borderRadius: BorderRadius.circular(DesignTokens.radius24),
                                 child: Image.file(
                                   _avatarFile!,
-                                  width: 88,
-                                  height: 88,
+                                  width: 76,
+                                  height: 76,
                                   fit: BoxFit.cover,
                                 ),
                               )
                             : Center(
                                 child: Icon(
                                   Icons.wb_sunny_rounded,
-                                  size: 44,
+                                  size: 38,
                                   color: Colors.white,
                                 ),
                               ),
