@@ -669,11 +669,27 @@ class NativeRuleRepository(private val context: Context) {
     }
 
     /**
-     * 判断今天是周几
-     * @return Calendar.SUNDAY(1) 到 Calendar.SATURDAY(7)
+     * 判断今天是周几（Calendar 约定）
+     * @return Calendar.SUNDAY(1) 到 Calendar.SATURDAY(7)，即 1=Sunday..7=Saturday
      */
     fun getDayOfWeek(): Int {
         return Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
+    }
+
+    /**
+     * 判断今天是周几（ISO 8601 约定，与 Flutter 侧 time_periods.days 一致）
+     *
+     * Flutter 侧 [TimePeriod.days] 使用 ISO 约定：1=周一(Monday), 7=周日(Sunday)，
+     * 与 Dart 的 `DateTime.weekday` 一致。原生侧 [getDayOfWeek] 返回 Calendar 约定
+     * (1=Sunday..7=Saturday)，直接比较会导致星期错位（例如周日被当作周一），
+     * 因此时间段规则匹配必须使用本方法。
+     *
+     * @return 1=Monday, 2=Tuesday, ..., 7=Sunday
+     */
+    fun getIsoDayOfWeek(): Int {
+        val calendarDay = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
+        // Calendar: 1=Sunday..7=Saturday → ISO: 1=Monday..7=Sunday
+        return (calendarDay + 5) % 7 + 1
     }
 
     /**

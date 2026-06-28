@@ -79,7 +79,7 @@ class RuleEvaluatorTest {
         stubNoRestAndMonitored(monitoredApp("com.game.app"))
         `when`(repository.getTimePeriods()).thenReturn(listOf(timePeriod("blocked", "08:00", "18:00")))
         `when`(repository.getCurrentTimeStr()).thenReturn("12:00")
-        `when`(repository.getDayOfWeek()).thenReturn(2) // Tuesday
+        `when`(repository.getIsoDayOfWeek()).thenReturn(2) // Tuesday
 
         val result = evaluator.evaluate("com.game.app", 0L)
 
@@ -96,7 +96,7 @@ class RuleEvaluatorTest {
         stubNoRestAndMonitored(monitoredApp("com.game.app"))
         `when`(repository.getTimePeriods()).thenReturn(listOf(timePeriod("blocked", "08:00", "18:00")))
         `when`(repository.getCurrentTimeStr()).thenReturn("20:00")
-        `when`(repository.getDayOfWeek()).thenReturn(2)
+        `when`(repository.getIsoDayOfWeek()).thenReturn(2)
         `when`(repository.getTotalTimeRule()).thenReturn(null)
 
         val result = evaluator.evaluate("com.game.app", 0L)
@@ -172,7 +172,7 @@ class RuleEvaluatorTest {
         stubNoRestAndMonitored(monitoredApp("com.game.app"))
         `when`(repository.getTimePeriods()).thenReturn(listOf(timePeriod("allowed", "10:00", "12:00")))
         `when`(repository.getCurrentTimeStr()).thenReturn("14:00")
-        `when`(repository.getDayOfWeek()).thenReturn(3) // Wednesday
+        `when`(repository.getIsoDayOfWeek()).thenReturn(3) // Wednesday
 
         val result = evaluator.evaluate("com.game.app", 0L)
 
@@ -189,7 +189,7 @@ class RuleEvaluatorTest {
         stubNoRestAndMonitored(monitoredApp("com.game.app"))
         `when`(repository.getTimePeriods()).thenReturn(listOf(timePeriod("allowed", "10:00", "16:00")))
         `when`(repository.getCurrentTimeStr()).thenReturn("13:00")
-        `when`(repository.getDayOfWeek()).thenReturn(3)
+        `when`(repository.getIsoDayOfWeek()).thenReturn(3)
         `when`(repository.getTotalTimeRule()).thenReturn(null)
 
         val result = evaluator.evaluate("com.game.app", 0L)
@@ -209,13 +209,13 @@ class RuleEvaluatorTest {
         @DisplayName("Blocked period does not apply on non-matching day")
         fun blockedPeriod_wrongDay_notBlocked() {
             stubNoRestAndMonitored(monitoredApp("com.game.app"))
-            // Only weekdays — Calendar convention: 1=Sun,2=Mon,...,7=Sat
-            // Using [2,3,4,5,6] for Mon-Fri in Calendar convention
+            // Only weekdays — ISO convention: 1=Mon,2=Tue,...,7=Sun (matches Flutter side)
+            // Using [1,2,3,4,5] for Mon-Fri in ISO convention
             `when`(repository.getTimePeriods()).thenReturn(
-                listOf(timePeriod("blocked", "08:00", "18:00", "[2,3,4,5,6]"))
+                listOf(timePeriod("blocked", "08:00", "18:00", "[1,2,3,4,5]"))
             )
             `when`(repository.getCurrentTimeStr()).thenReturn("12:00")
-            `when`(repository.getDayOfWeek()).thenReturn(1) // Sunday — not in [2,3,4,5,6]
+            `when`(repository.getIsoDayOfWeek()).thenReturn(7) // Sunday — not in [1,2,3,4,5]
             `when`(repository.getTotalTimeRule()).thenReturn(null)
 
             val result = evaluator.evaluate("com.game.app", 0L)
@@ -228,10 +228,10 @@ class RuleEvaluatorTest {
         fun blockedPeriod_matchingDay_blocked() {
             stubNoRestAndMonitored(monitoredApp("com.game.app"))
             `when`(repository.getTimePeriods()).thenReturn(
-                listOf(timePeriod("blocked", "08:00", "18:00", "[2,3,4,5,6]"))
+                listOf(timePeriod("blocked", "08:00", "18:00", "[1,2,3,4,5]"))
             )
             `when`(repository.getCurrentTimeStr()).thenReturn("12:00")
-            `when`(repository.getDayOfWeek()).thenReturn(3) // Tuesday — in [2,3,4,5,6]
+            `when`(repository.getIsoDayOfWeek()).thenReturn(2) // Tuesday — in [1,2,3,4,5]
 
             val result = evaluator.evaluate("com.game.app", 0L)
 
@@ -300,7 +300,7 @@ class RuleEvaluatorTest {
             stubNoRestAndMonitored(monitoredApp("com.game.app"))
             `when`(repository.getTimePeriods()).thenReturn(listOf(timePeriod("blocked", "08:00", "18:00")))
             `when`(repository.getCurrentTimeStr()).thenReturn("10:00")
-            `when`(repository.getDayOfWeek()).thenReturn(2)
+            `when`(repository.getIsoDayOfWeek()).thenReturn(2)
 
             val result = evaluator.evaluate("com.game.app", 0L)
 
@@ -339,7 +339,7 @@ class RuleEvaluatorTest {
             stubNoRestAndMonitored(monitoredApp("com.game.app"))
             `when`(repository.getTimePeriods()).thenReturn(listOf(timePeriod("blocked", "22:00", "06:00")))
             `when`(repository.getCurrentTimeStr()).thenReturn("23:00")
-            `when`(repository.getDayOfWeek()).thenReturn(2)
+            `when`(repository.getIsoDayOfWeek()).thenReturn(2)
 
             val result = evaluator.evaluate("com.game.app", 0L)
 
@@ -353,7 +353,7 @@ class RuleEvaluatorTest {
             stubNoRestAndMonitored(monitoredApp("com.game.app"))
             `when`(repository.getTimePeriods()).thenReturn(listOf(timePeriod("blocked", "22:00", "06:00")))
             `when`(repository.getCurrentTimeStr()).thenReturn("03:00")
-            `when`(repository.getDayOfWeek()).thenReturn(2)
+            `when`(repository.getIsoDayOfWeek()).thenReturn(2)
 
             val result = evaluator.evaluate("com.game.app", 0L)
 
@@ -367,7 +367,7 @@ class RuleEvaluatorTest {
             stubNoRestAndMonitored(monitoredApp("com.game.app"))
             `when`(repository.getTimePeriods()).thenReturn(listOf(timePeriod("blocked", "22:00", "06:00")))
             `when`(repository.getCurrentTimeStr()).thenReturn("10:00")
-            `when`(repository.getDayOfWeek()).thenReturn(2)
+            `when`(repository.getIsoDayOfWeek()).thenReturn(2)
             `when`(repository.getTotalTimeRule()).thenReturn(null)
 
             val result = evaluator.evaluate("com.game.app", 0L)
@@ -481,7 +481,7 @@ class RuleEvaluatorTest {
                 )
             )
             `when`(repository.getCurrentTimeStr()).thenReturn("13:00")
-            `when`(repository.getDayOfWeek()).thenReturn(2)
+            `when`(repository.getIsoDayOfWeek()).thenReturn(2)
 
             val result = evaluator.evaluate("com.game.app", 0L)
 
@@ -500,7 +500,7 @@ class RuleEvaluatorTest {
                 )
             )
             `when`(repository.getCurrentTimeStr()).thenReturn("09:00")
-            `when`(repository.getDayOfWeek()).thenReturn(2)
+            `when`(repository.getIsoDayOfWeek()).thenReturn(2)
 
             val result = evaluator.evaluate("com.game.app", 0L)
 

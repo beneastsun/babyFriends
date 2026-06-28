@@ -94,7 +94,7 @@ class RuleEvaluator(
         if (periods.isEmpty()) return null
 
         val currentTime = repository.getCurrentTimeStr()
-        val dayOfWeek = repository.getDayOfWeek()
+        val dayOfWeek = repository.getIsoDayOfWeek()
 
         val blockedPeriods = periods.filter { it.mode == "blocked" }
         val allowedPeriods = periods.filter { it.mode == "allowed" }
@@ -191,7 +191,8 @@ class RuleEvaluator(
     /**
      * Check if [dayOfWeek] matches the days specified in [daysStr].
      * [daysStr] can be a JSON array like "[1,2,3]" or comma-separated like "1,2,3".
-     * [dayOfWeek] follows Calendar convention: 1=Sunday, 2=Monday, ..., 7=Saturday.
+     * [dayOfWeek] uses ISO convention (1=Monday..7=Sunday), matching the Flutter side's
+     * `TimePeriod.days` storage (which uses Dart's `DateTime.weekday`).
      */
     internal fun isDayMatch(daysStr: String, dayOfWeek: Int): Boolean {
         return try {
