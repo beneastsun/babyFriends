@@ -849,70 +849,61 @@ class NativeOverlayManager(private val context: Context) {
      */
     private fun createCountdownView(initialSeconds: Long = 300L): View {
         val density = context.resources.displayMetrics.density
-        val candyPurple = 0xFFB57EDC.toInt()
-        val candyPeach = 0xFFFFAB91.toInt()
-        val cornerRadius = (20 * density).toFloat()
+        val size = (56 * density).toInt()
 
-        val container = FrameLayout(context).apply {
-            background = android.graphics.drawable.GradientDrawable(
-                android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
-                intArrayOf(candyPurple, candyPeach)
-            ).apply {
-                this.cornerRadius = cornerRadius
-            }
-            // 固定宽度（加宽以容纳家长入口图标）
-            layoutParams = FrameLayout.LayoutParams(
-                (155 * density).toInt(),
-                FrameLayout.LayoutParams.WRAP_CONTENT
-            )
-            setPadding(
-                (16 * density).toInt(),
-                (10 * density).toInt(),
-                (12 * density).toInt(),
-                (10 * density).toInt()
-            )
+        // 外层：EnergyBarView 作为圆形能量环容器
+        val energyBar = EnergyBarView(context).apply {
+            tag = "countdown_energy_bar"
+            layoutParams = FrameLayout.LayoutParams(size, size)
         }
 
-        val contentLayout = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+        // 中央内容垂直排列：🐻 + 倒计时文字（默认隐藏）+ 家长入口
+        val centerLayout = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            layoutParams = FrameLayout.LayoutParams(size, size)
         }
 
         val emojiView = TextView(context).apply {
             tag = "countdown_emoji"
             text = "🐻"
             textSize = 20f
-            setPadding(0, 0, (10 * density).toInt(), 0)
         }
 
         val timeView = TextView(context).apply {
             tag = "countdown_time"
             text = formatCountdownTime(initialSeconds)
-            textSize = 16f
+            textSize = 12f
             setTextColor(0xFFFFFFFF.toInt())
             typeface = Typeface.DEFAULT_BOLD
             setShadowLayer(2f, 1f, 1f, 0x40000000)
-            // 固定宽度确保不随文字长度变化
-            minWidth = (60 * density).toInt()
+            visibility = View.GONE  // 默认隐藏，≤5 分钟才显示
+            minWidth = (48 * density).toInt()
             gravity = Gravity.CENTER
         }
 
-        // 家长入口图标（不显眼的小锁）
+        centerLayout.addView(emojiView)
+        centerLayout.addView(timeView)
+
+        // 家长入口 🔒 放在右下角
         val parentEntryIcon = TextView(context).apply {
             tag = "parent_entry"
             text = "🔒"
-            textSize = 12f
-            setPadding((6 * density).toInt(), 0, 0, 0)
+            textSize = 10f
             alpha = 0.6f
-            setOnClickListener {
-                onParentEntryFromWidget?.invoke()
-            }
+            setOnClickListener { onParentEntryFromWidget?.invoke() }
         }
 
-        contentLayout.addView(emojiView)
-        contentLayout.addView(timeView)
-        contentLayout.addView(parentEntryIcon)
-        container.addView(contentLayout)
+        val container = FrameLayout(context).apply {
+            layoutParams = FrameLayout.LayoutParams(size, size)
+            addView(energyBar)
+            addView(centerLayout)
+            addView(parentEntryIcon, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.END
+            ))
+        }
 
         setupDragListener(container)
         return container
