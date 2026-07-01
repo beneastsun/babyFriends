@@ -1,29 +1,42 @@
 import 'package:flutter/material.dart';
 import 'design_tokens.dart';
 
-/// 应用动画系统 - Material 3 风格轻量动效
-/// 提供统一的动画定义和预设效果
+/// Kawaii Dream 动画系统
+/// 丰富活泼的动效 - 弹跳、摇摆、果冻、呼吸等可爱效果
 class AppAnimations {
   AppAnimations._();
 
-  // ========== 时长定义（复用 DesignTokens）==========
+  // ============================================================
+  // 时长定义（复用 DesignTokens）
+  // ============================================================
 
-  /// 极快动画 - 100ms（微交互）
-  static const Duration micro = Duration(milliseconds: 100);
+  /// 即时反馈 - 50ms
+  static Duration get instant => DesignTokens.instant;
 
-  /// 快速动画 - 150ms（按钮点击）
-  static Duration get quick => DesignTokens.animationQuick;
+  /// 微交互 - 100ms
+  static Duration get micro => DesignTokens.micro;
 
-  /// 标准动画 - 250ms（页面过渡）
-  static Duration get normal => DesignTokens.animationNormal;
+  /// 快速动画 - 150ms
+  static Duration get quick => DesignTokens.quick;
 
-  /// 慢动画 - 400ms（复杂过渡）
-  static Duration get slow => DesignTokens.animationSlow;
+  /// 标准动画 - 300ms
+  static Duration get normal => DesignTokens.normal;
+
+  /// 慢动画 - 500ms
+  static Duration get slow => DesignTokens.slow;
+
+  /// 更慢动画 - 800ms
+  static Duration get slower => DesignTokens.slower;
 
   /// 页面过渡动画
-  static Duration get pageTransition => DesignTokens.animationPageTransition;
+  static Duration get pageTransition => DesignTokens.pageTransition;
 
-  // ========== 曲线定义（复用 DesignTokens）==========
+  /// 庆祝动画 - 1200ms
+  static Duration get celebration => DesignTokens.celebration;
+
+  // ============================================================
+  // 曲线定义（复用 DesignTokens + Kawaii 专属）
+  // ============================================================
 
   /// 入场曲线 - easeOutCubic
   static Curve get enter => DesignTokens.curveEnter;
@@ -34,27 +47,27 @@ class AppAnimations {
   /// 标准曲线 - easeInOutCubic
   static Curve get standard => DesignTokens.curveStandard;
 
-  /// 弹性曲线 - elasticOut
+  /// 弹性曲线 - elasticOut (可爱弹跳)
   static Curve get elastic => DesignTokens.curveElastic;
 
   /// 快入慢出曲线
   static Curve get fastOutSlowIn => DesignTokens.curveFastOutSlowIn;
 
-  // ========== Material 3 标准曲线 ==========
+  /// 弹跳曲线
+  static Curve get bounce => DesignTokens.curveBounce;
 
-  /// 强调曲线 - 用于需要吸引注意力的动画
-  static const Curve emphasized = Curves.easeOutQuart;
+  /// 俏皮曲线 - 超调量弹跳
+  static Curve get playful => DesignTokens.curvePlayful;
 
-  /// 减速曲线 - 用于进入屏幕的元素
-  static const Curve decelerate = Curves.easeOut;
+  /// 果冻曲线
+  static Curve get jelly => DesignTokens.curveJelly;
 
-  /// 加速曲线 - 用于离开屏幕的元素
-  static const Curve accelerate = Curves.easeIn;
+  /// 平滑弹性曲线
+  static Curve get smoothBounce => DesignTokens.curveSmoothBounce;
 
-  /// 线性曲线 - 慎用，通常感觉不自然
-  static const Curve linear = Curves.linear;
-
-  // ========== 预设动画值 ==========
+  // ============================================================
+  // 预设动画值
+  // ============================================================
 
   /// 按钮按下缩放值
   static const double buttonPressScale = 0.96;
@@ -77,7 +90,18 @@ class AppAnimations {
   /// 弹跳过冲值
   static const double bounceOvershoot = 1.1;
 
-  // ========== 预设动画配置 ==========
+  /// 果冻过冲值
+  static const double jellyOvershoot = 1.15;
+
+  /// 脉冲缩放值
+  static const double pulseScale = 1.05;
+
+  /// 摇摆角度 (弧度)
+  static const double wiggleAngle = 0.1; // 约 5.7 度
+
+  // ============================================================
+  // 预设动画配置 - 基础动画
+  // ============================================================
 
   /// 按钮点击动画
   static AnimatedScaleConfig get buttonPress => AnimatedScaleConfig(
@@ -128,29 +152,171 @@ class AppAnimations {
         curve: enter,
       );
 
-  /// 弹跳动画
-  static AnimatedScaleConfig get bounce => AnimatedScaleConfig(
-        scale: bounceOvershoot,
+  /// 滑动进入动画（从上方）
+  static AnimatedSlideConfig get slideInFromTop => AnimatedSlideConfig(
+        offset: const Offset(0, -slideInDistance),
         duration: normal,
-        curve: elastic,
+        curve: enter,
       );
 
-  /// 脉冲动画
+  /// 滑动进入动画（从左侧）
+  static AnimatedSlideConfig get slideInFromLeft => AnimatedSlideConfig(
+        offset: const Offset(-slideInDistance, 0),
+        duration: normal,
+        curve: enter,
+      );
+
+  // ============================================================
+  // Kawaii Dream 专属动画配置
+  // ============================================================
+
+  /// 弹跳入场动画 (Bounce In)
+  /// 0.0 → 1.1 → 0.95 → 1.0
+  static AnimatedScaleSequenceConfig get bounceIn => AnimatedScaleSequenceConfig(
+        keyframes: [
+          ScaleKeyframe(scale: 0.0, duration: Duration.zero),
+          ScaleKeyframe(scale: 1.1, duration: Duration(milliseconds: 200), curve: Curves.easeOut),
+          ScaleKeyframe(scale: 0.95, duration: Duration(milliseconds: 100), curve: Curves.easeInOut),
+          ScaleKeyframe(scale: 1.0, duration: Duration(milliseconds: 100), curve: Curves.easeOut),
+        ],
+      );
+
+  /// 弹跳退场动画 (Bounce Out)
+  /// 1.0 → 1.1 → 0.0
+  static AnimatedScaleSequenceConfig get bounceOut => AnimatedScaleSequenceConfig(
+        keyframes: [
+          ScaleKeyframe(scale: 1.0, duration: Duration.zero),
+          ScaleKeyframe(scale: 1.1, duration: Duration(milliseconds: 100), curve: Curves.easeIn),
+          ScaleKeyframe(scale: 0.0, duration: Duration(milliseconds: 200), curve: Curves.easeIn),
+        ],
+      );
+
+  /// 果冻动画 (Jelly)
+  /// 1.0 → 1.15 → 0.9 → 1.05 → 1.0
+  static AnimatedScaleSequenceConfig get jellyScale => AnimatedScaleSequenceConfig(
+        keyframes: [
+          ScaleKeyframe(scale: 1.0, duration: Duration.zero),
+          ScaleKeyframe(scale: 1.15, duration: Duration(milliseconds: 150), curve: playful),
+          ScaleKeyframe(scale: 0.9, duration: Duration(milliseconds: 100), curve: Curves.easeInOut),
+          ScaleKeyframe(scale: 1.05, duration: Duration(milliseconds: 100), curve: Curves.easeOut),
+          ScaleKeyframe(scale: 1.0, duration: Duration(milliseconds: 100), curve: Curves.easeOut),
+        ],
+      );
+
+  /// 摇摆动画 (Wiggle)
+  /// -5° → 5° → -5° → 0°
+  static AnimatedRotationSequenceConfig get wiggle => AnimatedRotationSequenceConfig(
+        keyframes: [
+          RotationKeyframe(angle: 0.0, duration: Duration.zero),
+          RotationKeyframe(angle: wiggleAngle, duration: Duration(milliseconds: 50), curve: Curves.easeOut),
+          RotationKeyframe(angle: -wiggleAngle, duration: Duration(milliseconds: 50), curve: Curves.easeInOut),
+          RotationKeyframe(angle: wiggleAngle * 0.5, duration: Duration(milliseconds: 50), curve: Curves.easeInOut),
+          RotationKeyframe(angle: 0.0, duration: Duration(milliseconds: 50), curve: Curves.easeOut),
+        ],
+      );
+
+  /// 脉冲动画 (Pulse)
+  /// 1.0 → 1.05 → 1.0
   static AnimatedScaleConfig get pulse => AnimatedScaleConfig(
-        scale: 1.05,
+        scale: pulseScale,
         duration: normal,
         curve: fastOutSlowIn,
       );
 
-  // ========== 页面过渡动画 ==========
+  /// 心跳动画 (Heartbeat)
+  /// 1.0 → 1.1 → 1.0 → 1.1 → 1.0
+  static AnimatedScaleSequenceConfig get heartbeat => AnimatedScaleSequenceConfig(
+        keyframes: [
+          ScaleKeyframe(scale: 1.0, duration: Duration.zero),
+          ScaleKeyframe(scale: 1.1, duration: Duration(milliseconds: 150), curve: Curves.easeOut),
+          ScaleKeyframe(scale: 1.0, duration: Duration(milliseconds: 100), curve: Curves.easeIn),
+          ScaleKeyframe(scale: 1.1, duration: Duration(milliseconds: 150), curve: Curves.easeOut),
+          ScaleKeyframe(scale: 1.0, duration: Duration(milliseconds: 300), curve: Curves.easeOut),
+        ],
+      );
+
+  /// 抖动动画 (Shake) - 水平抖动
+  static AnimatedSlideSequenceConfig get shake => AnimatedSlideSequenceConfig(
+        keyframes: [
+          SlideKeyframe(offset: const Offset(0, 0), duration: Duration.zero),
+          SlideKeyframe(offset: const Offset(-8, 0), duration: Duration(milliseconds: 50)),
+          SlideKeyframe(offset: const Offset(8, 0), duration: Duration(milliseconds: 50)),
+          SlideKeyframe(offset: const Offset(-4, 0), duration: Duration(milliseconds: 50)),
+          SlideKeyframe(offset: const Offset(4, 0), duration: Duration(milliseconds: 50)),
+          SlideKeyframe(offset: const Offset(0, 0), duration: Duration(milliseconds: 50)),
+        ],
+      );
+
+  /// 成功弹跳 (Success Pop)
+  static AnimatedScaleSequenceConfig get successPop => AnimatedScaleSequenceConfig(
+        keyframes: [
+          ScaleKeyframe(scale: 0.0, duration: Duration.zero),
+          ScaleKeyframe(scale: 1.2, duration: Duration(milliseconds: 200), curve: playful),
+          ScaleKeyframe(scale: 0.9, duration: Duration(milliseconds: 100), curve: Curves.easeInOut),
+          ScaleKeyframe(scale: 1.0, duration: Duration(milliseconds: 100), curve: Curves.easeOut),
+        ],
+      );
+
+  /// 错误抖动 (Error Shake)
+  static AnimatedSlideSequenceConfig get errorShake => AnimatedSlideSequenceConfig(
+        keyframes: [
+          SlideKeyframe(offset: const Offset(0, 0), duration: Duration.zero),
+          SlideKeyframe(offset: const Offset(-10, 0), duration: Duration(milliseconds: 80)),
+          SlideKeyframe(offset: const Offset(10, 0), duration: Duration(milliseconds: 80)),
+          SlideKeyframe(offset: const Offset(-6, 0), duration: Duration(milliseconds: 80)),
+          SlideKeyframe(offset: const Offset(6, 0), duration: Duration(milliseconds: 80)),
+          SlideKeyframe(offset: const Offset(-2, 0), duration: Duration(milliseconds: 80)),
+          SlideKeyframe(offset: const Offset(0, 0), duration: Duration(milliseconds: 80)),
+        ],
+      );
+
+  // ============================================================
+  // 循环动画配置
+  // ============================================================
+
+  /// 呼吸动画 (Breathing) - 2秒循环
+  static AnimatedScaleConfig get breathing => AnimatedScaleConfig(
+        scale: 1.02,
+        duration: const Duration(milliseconds: 1000),
+        curve: Curves.easeInOut,
+        repeat: true,
+        reverse: true,
+      );
+
+  /// 浮动动画 (Floating) - 3秒循环
+  static AnimatedSlideConfig get floating => AnimatedSlideConfig(
+        offset: const Offset(0, -4),
+        duration: const Duration(milliseconds: 1500),
+        curve: Curves.easeInOut,
+        repeat: true,
+        reverse: true,
+      );
+
+  /// 闪烁动画 (Sparkle) - 1.5秒循环
+  static AnimatedOpacityConfig get sparkle => AnimatedOpacityConfig(
+        opacity: 0.5,
+        duration: const Duration(milliseconds: 750),
+        curve: Curves.easeInOut,
+        repeat: true,
+        reverse: true,
+      );
+
+  // ============================================================
+  // 页面过渡动画
+  // ============================================================
 
   /// 页面淡入过渡
   static PageTransitionsBuilder get pageFade => const FadeUpwardsPageTransitionsBuilder();
 
-  /// 页面滑动过渡
+  /// 页面滑动过渡 (iOS 风格)
   static PageTransitionsBuilder get pageSlide => const CupertinoPageTransitionsBuilder();
 
-  // ========== 列表交错动画 ==========
+  /// 页面缩放过渡 (可爱风格)
+  static PageTransitionsBuilder get pageZoom => const ZoomPageTransitionsBuilder();
+
+  // ============================================================
+  // 列表交错动画
+  // ============================================================
 
   /// 列表项交错间隔（毫秒）
   static const int listStaggerInterval = 30;
@@ -159,12 +325,14 @@ class AppAnimations {
   static const int listStaggerMaxDelay = 300;
 
   /// 获取列表项交错延迟
-  static Duration getListStaggerDelay(int index, int totalCount) {
+  static Duration getListStaggerDelay(int index, [int? totalCount]) {
     final delay = (index * listStaggerInterval).clamp(0, listStaggerMaxDelay);
     return Duration(milliseconds: delay);
   }
 
-  // ========== 动画工具方法 ==========
+  // ============================================================
+  // 动画工具方法
+  // ============================================================
 
   /// 创建缩放动画控制器
   static AnimationController createScaleController(
@@ -215,19 +383,73 @@ class AppAnimations {
       curve: Interval(begin, end, curve: curve ?? Curves.easeOutCubic),
     );
   }
+
+  /// 创建循环动画
+  static AnimationController createRepeatingController(
+    TickerProvider vsync, {
+    required Duration duration,
+    bool reverse = true,
+  }) {
+    final controller = AnimationController(
+      duration: duration,
+      vsync: vsync,
+    );
+    if (reverse) {
+      controller.repeat(reverse: true);
+    } else {
+      controller.repeat();
+    }
+    return controller;
+  }
 }
+
+// ============================================================
+// 动画配置类
+// ============================================================
 
 /// 缩放动画配置
 class AnimatedScaleConfig {
   final double scale;
   final Duration duration;
   final Curve curve;
+  final bool repeat;
+  final bool reverse;
 
   const AnimatedScaleConfig({
     required this.scale,
     required this.duration,
     required this.curve,
+    this.repeat = false,
+    this.reverse = false,
   });
+}
+
+/// 缩放关键帧
+class ScaleKeyframe {
+  final double scale;
+  final Duration duration;
+  final Curve curve;
+
+  const ScaleKeyframe({
+    required this.scale,
+    required this.duration,
+    this.curve = Curves.linear,
+  });
+}
+
+/// 缩放序列动画配置
+class AnimatedScaleSequenceConfig {
+  final List<ScaleKeyframe> keyframes;
+
+  const AnimatedScaleSequenceConfig({required this.keyframes});
+
+  /// 获取总时长
+  Duration get totalDuration {
+    return keyframes.fold<Duration>(
+      Duration.zero,
+      (total, keyframe) => total + keyframe.duration,
+    );
+  }
 }
 
 /// 透明度动画配置
@@ -235,11 +457,15 @@ class AnimatedOpacityConfig {
   final double opacity;
   final Duration duration;
   final Curve curve;
+  final bool repeat;
+  final bool reverse;
 
   const AnimatedOpacityConfig({
     required this.opacity,
     required this.duration,
     required this.curve,
+    this.repeat = false,
+    this.reverse = false,
   });
 }
 
@@ -248,12 +474,72 @@ class AnimatedSlideConfig {
   final Offset offset;
   final Duration duration;
   final Curve curve;
+  final bool repeat;
+  final bool reverse;
 
   const AnimatedSlideConfig({
     required this.offset,
     required this.duration,
     required this.curve,
+    this.repeat = false,
+    this.reverse = false,
   });
+}
+
+/// 滑动关键帧
+class SlideKeyframe {
+  final Offset offset;
+  final Duration duration;
+  final Curve curve;
+
+  const SlideKeyframe({
+    required this.offset,
+    required this.duration,
+    this.curve = Curves.linear,
+  });
+}
+
+/// 滑动序列动画配置
+class AnimatedSlideSequenceConfig {
+  final List<SlideKeyframe> keyframes;
+
+  const AnimatedSlideSequenceConfig({required this.keyframes});
+
+  /// 获取总时长
+  Duration get totalDuration {
+    return keyframes.fold<Duration>(
+      Duration.zero,
+      (total, keyframe) => total + keyframe.duration,
+    );
+  }
+}
+
+/// 旋转关键帧
+class RotationKeyframe {
+  final double angle;
+  final Duration duration;
+  final Curve curve;
+
+  const RotationKeyframe({
+    required this.angle,
+    required this.duration,
+    this.curve = Curves.linear,
+  });
+}
+
+/// 旋转序列动画配置
+class AnimatedRotationSequenceConfig {
+  final List<RotationKeyframe> keyframes;
+
+  const AnimatedRotationSequenceConfig({required this.keyframes});
+
+  /// 获取总时长
+  Duration get totalDuration {
+    return keyframes.fold<Duration>(
+      Duration.zero,
+      (total, keyframe) => total + keyframe.duration,
+    );
+  }
 }
 
 /// 交互状态枚举
@@ -297,7 +583,7 @@ mixin InteractiveAnimationMixin<T extends StatefulWidget> on State<T>, TickerPro
       end: AppAnimations.buttonPressScale,
     ).animate(CurvedAnimation(
       parent: _scaleController,
-      curve: Curves.easeOutCubic,
+      curve: AppAnimations.enter,
     ));
   }
 
@@ -337,5 +623,40 @@ mixin InteractiveAnimationMixin<T extends StatefulWidget> on State<T>, TickerPro
     if (_isDisabled) return InteractionState.disabled;
     if (_isPressed) return InteractionState.pressed;
     return InteractionState.normal;
+  }
+}
+
+/// 弹跳动画混入 - 更活泼的交互效果
+mixin BouncyAnimationMixin<T extends StatefulWidget> on State<T>, TickerProviderStateMixin<T> {
+  late AnimationController _bounceController;
+  late Animation<double> _bounceAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _bounceController = AnimationController(
+      duration: AppAnimations.quick,
+      vsync: this,
+    );
+    _bounceAnimation = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.95), weight: 1),
+      TweenSequenceItem(tween: Tween(begin: 0.95, end: 1.02), weight: 1),
+      TweenSequenceItem(tween: Tween(begin: 1.02, end: 1.0), weight: 1),
+    ]).animate(CurvedAnimation(
+      parent: _bounceController,
+      curve: Curves.easeOut,
+    ));
+  }
+
+  @override
+  void dispose() {
+    _bounceController.dispose();
+    super.dispose();
+  }
+
+  double get bounceScale => _bounceAnimation.value;
+
+  void triggerBounce() {
+    _bounceController.forward(from: 0);
   }
 }

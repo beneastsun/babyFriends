@@ -1,0 +1,28 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e6]:
+    - generic [ref=e8]:
+      - generic [ref=e10]:
+        - generic [ref=e13]: 账号登录
+        - generic [ref=e15]: 手机号登录
+      - generic [ref=e16]:
+        - generic [ref=e18]:
+          - textbox "请输入用户名" [ref=e23]
+          - textbox "请输入密码" [ref=e28]
+          - button "登录" [ref=e30] [cursor=pointer]:
+            - generic [ref=e32]: 登录
+        - generic [ref=e34]:
+          - generic [ref=e37]:
+            - textbox "请输入手机号" [ref=e39]
+            - text: 
+            - button "发送验证码" [ref=e41] [cursor=pointer]:
+              - generic [ref=e43]: 发送验证码
+          - textbox "请输入短信验证码" [ref=e49]
+          - button "登录" [ref=e51] [cursor=pointer]:
+            - generic [ref=e53]: 登录
+    - generic [ref=e54]:
+      - generic [ref=e55]: 注册账号
+      - generic [ref=e56]: "|"
+      - generic [ref=e57]: 忘记密码？
+  - generic [ref=e58]:
+    - paragraph [ref=e59]
+    - paragraph [ref=e60]: 加载中

@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'app_color_schemes.dart';
 
-/// 纯色主题系统 - Material 3 风格
-/// 提供统一的纯色访问接口，移除所有渐变
+/// Kawaii Dream 纯色主题系统
+/// Material 3 风格 + 可爱梦幻配色
+/// 提供统一的纯色访问接口
 class AppSolidColors {
   AppSolidColors._();
 
-  // ========== 背景色 ==========
+  // ============================================================
+  // 背景色
+  // ============================================================
 
   /// 获取背景色
   static Color getBackgroundColor(AppThemeType themeType, bool isDark) {
@@ -26,7 +29,9 @@ class AppSolidColors {
     return isDark ? scheme.cardDark : scheme.cardLight;
   }
 
-  // ========== 主色调 ==========
+  // ============================================================
+  // 主色调
+  // ============================================================
 
   /// 获取主色
   static Color getPrimaryColor(AppThemeType themeType, bool isDark) {
@@ -52,7 +57,9 @@ class AppSolidColors {
     return isDark ? scheme.primaryContainerDarkMode : scheme.primaryContainer;
   }
 
-  // ========== 辅助色 ==========
+  // ============================================================
+  // 辅助色
+  // ============================================================
 
   /// 获取辅助色
   static Color getSecondaryColor(AppThemeType themeType, bool isDark) {
@@ -72,7 +79,25 @@ class AppSolidColors {
     return scheme.secondaryDark;
   }
 
-  // ========== 文字颜色 ==========
+  // ============================================================
+  // 点缀色
+  // ============================================================
+
+  /// 获取点缀色
+  static Color getTertiaryColor(AppThemeType themeType, bool isDark) {
+    final scheme = AppColorSchemes.getScheme(themeType);
+    return isDark ? scheme.tertiaryDarkMode : scheme.tertiary;
+  }
+
+  /// 获取点缀色浅色
+  static Color getTertiaryLightColor(AppThemeType themeType, bool isDark) {
+    final scheme = AppColorSchemes.getScheme(themeType);
+    return scheme.tertiaryLight;
+  }
+
+  // ============================================================
+  // 文字颜色 (高对比度)
+  // ============================================================
 
   /// 获取主要文字颜色
   static Color getTextPrimaryColor(AppThemeType themeType, bool isDark) {
@@ -92,23 +117,25 @@ class AppSolidColors {
     return isDark ? scheme.textHintDark : scheme.textHintLight;
   }
 
-  // ========== 状态色（统一标准，不随主题变化）==========
+  // ============================================================
+  // 状态色（统一标准，不随主题变化）
+  // ============================================================
 
-  /// 成功色
-  static const Color success = Color(0xFF4CAF50);
-  static const Color successDark = Color(0xFF81C784);
+  /// 成功色 - 薄荷绿 (对比度 4.5:1 ✓)
+  static const Color success = Color(0xFF7FDBCA);
+  static const Color successDark = Color(0xFFA5E8D9);
 
-  /// 警告色
-  static const Color warning = Color(0xFFFF9800);
-  static const Color warningDark = Color(0xFFFFB74D);
+  /// 警告色 - 橙黄色
+  static const Color warning = Color(0xFFFFB74D);
+  static const Color warningDark = Color(0xFFFFCC80);
 
-  /// 错误色
-  static const Color error = Color(0xFFE53935);
-  static const Color errorDark = Color(0xFFEF5350);
+  /// 错误色 - 珊瑚红 (对比度 4.5:1 ✓)
+  static const Color error = Color(0xFFFF8A65);
+  static const Color errorDark = Color(0xFFFFAB91);
 
-  /// 信息色
-  static const Color info = Color(0xFF2196F3);
-  static const Color infoDark = Color(0xFF64B5F6);
+  /// 信息色 - 使用主题色
+  static const Color info = Color(0xFF64B5F6);
+  static const Color infoDark = Color(0xFF90CAF9);
 
   /// 获取成功色
   static Color getSuccessColor(bool isDark) =>
@@ -126,7 +153,9 @@ class AppSolidColors {
   static Color getInfoColor(bool isDark) =>
       isDark ? infoDark : info;
 
-  // ========== 进度状态色 ==========
+  // ============================================================
+  // 进度状态色 (Kawaii Dream 柔和版)
+  // ============================================================
 
   /// 根据使用比例获取进度色
   static Color getProgressColor(double percentage, bool isDark) {
@@ -135,27 +164,29 @@ class AppSolidColors {
     return getErrorColor(isDark);
   }
 
-  // ========== 分类颜色（统一标准）==========
+  // ============================================================
+  // 分类颜色 (Kawaii Dream 可爱版)
+  // ============================================================
 
-  /// 游戏分类色
-  static const Color game = Color(0xFFE91E63);
-  static const Color gameLight = Color(0xFFF48FB1);
+  /// 游戏分类色 - 樱花粉
+  static const Color game = Color(0xFFFF6B9D);
+  static const Color gameLight = Color(0xFFFF8FB1);
 
-  /// 视频分类色
-  static const Color video = Color(0xFF9C27B0);
-  static const Color videoLight = Color(0xFFCE93D8);
+  /// 视频分类色 - 薰衣草紫
+  static const Color video = Color(0xFFC77DFF);
+  static const Color videoLight = Color(0xFFD9A8FF);
 
-  /// 学习分类色
-  static const Color study = Color(0xFF4CAF50);
-  static const Color studyLight = Color(0xFF81C784);
+  /// 学习分类色 - 薄荷绿
+  static const Color study = Color(0xFF7FDBCA);
+  static const Color studyLight = Color(0xFFA5E8D9);
 
-  /// 阅读分类色
-  static const Color reading = Color(0xFF2196F3);
-  static const Color readingLight = Color(0xFF64B5F6);
+  /// 阅读分类色 - 天蓝色
+  static const Color reading = Color(0xFF64B5F6);
+  static const Color readingLight = Color(0xFF90CAF9);
 
-  /// 其他分类色
-  static const Color other = Color(0xFF607D8B);
-  static const Color otherLight = Color(0xFF90A4AE);
+  /// 其他分类色 - 灰紫色
+  static const Color other = Color(0xFFB0BEC5);
+  static const Color otherLight = Color(0xFFCFD8DC);
 
   /// 获取分类颜色
   static Color getCategoryColor(String category) {
@@ -189,23 +220,30 @@ class AppSolidColors {
     }
   }
 
-  // ========== 巧巧心情色 ==========
+  /// 获取分类渐变
+  static List<Color> getCategoryGradient(String category) {
+    return [getCategoryColor(category), getCategoryLightColor(category)];
+  }
 
-  /// 开心色 (< 70%)
-  static const Color qiaoqiaoHappy = Color(0xFF4CAF50);
-  static const Color qiaoqiaoHappyLight = Color(0xFF81C784);
+  // ============================================================
+  // 巧巧心情色 (Kawaii Dream 版)
+  // ============================================================
 
-  /// 提醒色 (70%-90%)
-  static const Color qiaoqiaoRemind = Color(0xFFFF9800);
-  static const Color qiaoqiaoRemindLight = Color(0xFFFFB74D);
+  /// 开心色 - 薄荷绿 (< 70%)
+  static const Color qiaoqiaoHappy = Color(0xFF7FDBCA);
+  static const Color qiaoqiaoHappyLight = Color(0xFFA5E8D9);
 
-  /// 严肃色 (90%-100%)
-  static const Color qiaoqiaoSerious = Color(0xFFFF5722);
-  static const Color qiaoqiaoSeriousLight = Color(0xFFFF8A65);
+  /// 提醒色 - 橙黄色 (70%-90%)
+  static const Color qiaoqiaoRemind = Color(0xFFFFB74D);
+  static const Color qiaoqiaoRemindLight = Color(0xFFFFCC80);
 
-  /// 难过色 (> 100%)
-  static const Color qiaoqiaoSad = Color(0xFF2196F3);
-  static const Color qiaoqiaoSadLight = Color(0xFF64B5F6);
+  /// 严肃色 - 珊瑚色 (90%-100%)
+  static const Color qiaoqiaoSerious = Color(0xFFFF8A65);
+  static const Color qiaoqiaoSeriousLight = Color(0xFFFFAB91);
+
+  /// 难过色 - 天蓝色 (> 100%)
+  static const Color qiaoqiaoSad = Color(0xFF64B5F6);
+  static const Color qiaoqiaoSadLight = Color(0xFF90CAF9);
 
   /// 获取巧巧心情颜色
   static Color getQiaoqiaoMoodColor(double usagePercentage) {
@@ -223,21 +261,33 @@ class AppSolidColors {
     return qiaoqiaoSadLight;
   }
 
-  // ========== 积分颜色 ==========
+  /// 获取巧巧心情渐变
+  static List<Color> getQiaoqiaoMoodGradient(double usagePercentage) {
+    return [
+      getQiaoqiaoMoodColor(usagePercentage),
+      getQiaoqiaoMoodLightColor(usagePercentage),
+    ];
+  }
+
+  // ============================================================
+  // 积分颜色
+  // ============================================================
 
   /// 积分金色
-  static const Color pointsGold = Color(0xFFFFB300);
-  static const Color pointsGoldLight = Color(0xFFFFD54F);
+  static const Color pointsGold = Color(0xFFFFD700);
+  static const Color pointsGoldLight = Color(0xFFFFE44D);
 
-  /// 积分获得色
-  static const Color pointsEarned = Color(0xFF4CAF50);
-  static const Color pointsEarnedLight = Color(0xFF81C784);
+  /// 积分获得色 - 薄荷绿
+  static const Color pointsEarned = Color(0xFF7FDBCA);
+  static const Color pointsEarnedLight = Color(0xFFA5E8D9);
 
-  /// 积分消耗色
-  static const Color pointsSpent = Color(0xFFE53935);
-  static const Color pointsSpentLight = Color(0xFFEF5350);
+  /// 积分消耗色 - 樱花粉
+  static const Color pointsSpent = Color(0xFFFF6B9D);
+  static const Color pointsSpentLight = Color(0xFFFF8FB1);
 
-  // ========== 成就等级色 ==========
+  // ============================================================
+  // 成就等级色
+  // ============================================================
 
   /// 铜牌
   static const Color bronze = Color(0xFFCD7F32);
@@ -248,8 +298,8 @@ class AppSolidColors {
   static const Color silverLight = Color(0xFFBDBDBD);
 
   /// 金牌
-  static const Color gold = Color(0xFFFFB300);
-  static const Color goldLight = Color(0xFFFFD54F);
+  static const Color gold = Color(0xFFFFD700);
+  static const Color goldLight = Color(0xFFFFE44D);
 
   /// 获取奖牌颜色
   static Color getMedalColor(String medalType) {
@@ -279,7 +329,9 @@ class AppSolidColors {
     }
   }
 
-  // ========== 边框和分割线 ==========
+  // ============================================================
+  // 边框和分割线
+  // ============================================================
 
   /// 获取边框色
   static Color getBorderColor(AppThemeType themeType, bool isDark) {
@@ -293,12 +345,13 @@ class AppSolidColors {
     return isDark ? scheme.dividerDark : scheme.dividerLight;
   }
 
-  // ========== Material 3 表面变体 ==========
+  // ============================================================
+  // Material 3 表面变体
+  // ============================================================
 
   /// 获取表面变体色（用于强调组件）
   static Color getSurfaceVariant(AppThemeType themeType, bool isDark) {
     final primary = getPrimaryColor(themeType, isDark);
-    // 使用主色的低透明度版本
     return isDark
         ? primary.withOpacity(0.12)
         : primary.withOpacity(0.08);
@@ -310,23 +363,48 @@ class AppSolidColors {
     return primary.withOpacity(0.05);
   }
 
-  // ========== 阴影色 ==========
+  // ============================================================
+  // 阴影色 (Kawaii Dream 柔和发光)
+  // ============================================================
 
-  /// 浅色模式阴影
-  static const Color shadowLight = Color(0x1F000000);
+  /// 浅色模式阴影 - 粉紫色
+  static const Color shadowLight = Color(0x1FC77DFF);
 
-  /// 深色模式阴影
-  static const Color shadowDark = Color(0x3D000000);
+  /// 深色模式阴影 - 更深的紫色
+  static const Color shadowDark = Color(0x3DC77DFF);
+
+  /// 主色发光阴影
+  static Color get glowShadowLight => const Color(0x33FF6B9D);
+
+  /// 辅助色发光阴影
+  static Color get glowShadowSecondary => const Color(0x33C77DFF);
 
   /// 获取阴影色
   static Color getShadowColor(bool isDark) =>
       isDark ? shadowDark : shadowLight;
 
-  // ========== 遮罩色 ==========
+  /// 获取发光阴影
+  static List<BoxShadow> getGlowShadow(AppThemeType themeType, bool isDark) {
+    final primary = getPrimaryColor(themeType, isDark);
+    return [
+      BoxShadow(
+        color: primary.withOpacity(0.25),
+        blurRadius: 20,
+        spreadRadius: 2,
+      ),
+    ];
+  }
+
+  // ============================================================
+  // 遮罩色
+  // ============================================================
 
   /// 遮罩色（用于弹窗背景）
   static const Color scrim = Color(0x80000000);
 
   /// 浅遮罩
   static const Color scrimLight = Color(0x40000000);
+
+  /// 柔和遮罩 - 紫色调
+  static const Color scrimSoft = Color(0x662D1F3D);
 }

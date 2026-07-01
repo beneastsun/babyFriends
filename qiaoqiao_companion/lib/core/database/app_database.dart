@@ -181,6 +181,8 @@ class AppDatabase {
         rest_end_time INTEGER,
         alerts_shown TEXT,
         is_active INTEGER DEFAULT 1,
+        countdown_started_at INTEGER,
+        countdown_total_seconds INTEGER,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
@@ -223,16 +225,13 @@ class AppDatabase {
       CREATE INDEX idx_continuous_session_active ON ${DatabaseConstants.tableContinuousSessions}(is_active);
     ''');
 
-    // 性能优化：复合索引（v3.1 新增）
-    // 用于按日期+包名查询使用记录
+    // v4 新增：应用设置表
     await db.execute('''
-      CREATE INDEX IF NOT EXISTS idx_usage_date_package
-      ON ${DatabaseConstants.tableAppUsageRecords}(date, package_name);
-    ''');
-    // 用于按时段查询统计数据
-    await db.execute('''
-      CREATE INDEX IF NOT EXISTS idx_hourly_date_hour
-      ON ${DatabaseConstants.tableHourlyUsageStats}(date, hour);
+      CREATE TABLE ${DatabaseConstants.tableAppSettings} (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
     ''');
   }
 
@@ -444,6 +443,63 @@ class AppDatabase {
 
       print('[AppDatabase] Upgrade to v3 completed');
     }
+
+    if (oldVersion < 4) {
+      // v3 -> v4: 添加 app_settings 表（用于原生侧 stateless 设置读取）
+      print('[AppDatabase] Upgrading from v3 to v4...');
+
+      await db.execute('''
+        CREATE TABLE ${DatabaseConstants.tableAppSettings} (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+      ''');
+
+      // 迁移现有连续使用设置到新表（从 SharedPreferences 读取，如果存在的话）
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      // 检查 database_service 是否已通过 flutter 侧写入，没有则写入默认值
+      await db.insert(DatabaseConstants.tableAppSettings, {
+        'key': 'continuous_usage_limit_enabled',
+        'value': 'false',
+        'updated_at': now,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+
+      await db.insert(DatabaseConstants.tableAppSettings, {
+        'key': 'continuous_usage_limit_minutes',
+        'value': '30',
+        'updated_at': now,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+
+      await db.insert(DatabaseConstants.tableAppSettings, {
+        'key': 'continuous_rest_minutes',
+        'value': '10',
+        'updated_at': now,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+
+      await db.insert(DatabaseConstants.tableAppSettings, {
+        'key': 'continuous_reset_after_rest_minutes',
+        'value': '1',
+        'updated_at': now,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+
+      print('[AppDatabase] Upgrade to v4 completed');
+    }
+
+    if (oldVersion < 5) {
+      // v4 -> v5: 连续使用会话表新增倒计时恢复字段，用于原生侧在进程被杀后恢复倒计时
+      print('[AppDatabase] Upgrading from v4 to v5...');
+
+      await db.execute(
+        'ALTER TABLE ${DatabaseConstants.tableContinuousSessions} ADD COLUMN countdown_started_at INTEGER',
+      );
+      await db.execute(
+        'ALTER TABLE ${DatabaseConstants.tableContinuousSessions} ADD COLUMN countdown_total_seconds INTEGER',
+      );
+
+      print('[AppDatabase] Upgrade to v5 completed');
+    }
   }
 
   /// 关闭数据库
@@ -466,5 +522,6 @@ class AppDatabase {
     await db.delete(DatabaseConstants.tableMonitoredApps);
     await db.delete(DatabaseConstants.tableTimePeriods);
     await db.delete(DatabaseConstants.tableContinuousSessions);
+    await db.delete(DatabaseConstants.tableAppSettings);
   }
 }

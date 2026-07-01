@@ -4,6 +4,8 @@ import 'package:qiaoqiao_companion/core/platform/platform.dart';
 import 'package:qiaoqiao_companion/shared/providers/providers.dart';
 import 'package:qiaoqiao_companion/core/services/services.dart';
 import 'package:qiaoqiao_companion/features/onboarding/data/onboarding_state.dart';
+import 'package:qiaoqiao_companion/features/parent_mode/data/parent_password_repository.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// 应用初始化状态
 class AppInitializationState {
@@ -55,6 +57,9 @@ class AppInitializationNotifier extends StateNotifier<AppInitializationState> {
       final dbService = await DatabaseService.getInstance();
       await dbService.initialize();
 
+      // 1.1 迁移家长密码到 DB（供 Kotlin 端原生读取）
+      await ParentPasswordRepository().migrateToDb();
+
       // 2. 加载状态
       await Future.wait([
         _ref.read(todayUsageProvider.notifier).loadToday(),
@@ -82,10 +87,37 @@ class AppInitializationNotifier extends StateNotifier<AppInitializationState> {
         isOnboardingCompleted: isOnboardingCompleted,
       );
 
-      // 5. 如果权限已授予，启动监控和前台服务
+      // 5. 如果权限已授予，启动配置同步和前台服务
       if (hasUsageStats && hasOverlay) {
-        _ref.read(usageMonitorServiceProvider).startMonitoring();
+        // 启动配置同步（替代原 UsageMonitorService，仅负责数据同步）
+        _ref.read(configSyncServiceProvider).startSync();
         await MonitorService.startForegroundService();
+        // 启动守护服务（独立进程保活）
+        await MonitorService.startGuardService();
+
+        // 首次设置时引导电池优化和自启动权限（仅提示一次）
+        final prefs = await SharedPreferences.getInstance();
+        final hasShownSetup = prefs.getBool('miui_setup_shown') ?? false;
+        if (!hasShownSetup) {
+          // 请求忽略电池优化
+          try {
+            final isIgnoring = await MonitorService.checkBatteryOptimization();
+            if (isIgnoring != true) {
+              await MonitorService.openBatterySettings();
+            }
+          } catch (_) {}
+
+          // MIUI 自启动权限引导
+          try {
+            final needsAutoStart = await MonitorService.checkAutoStartPermission();
+            if (needsAutoStart) {
+              await MonitorService.openAutoStartSettings();
+            }
+          } catch (_) {}
+
+          // 标记已提示
+          await prefs.setBool('miui_setup_shown', true);
+        }
       }
     } catch (e) {
       state = AppInitializationState(error: e.toString());
@@ -101,8 +133,11 @@ class AppInitializationNotifier extends StateNotifier<AppInitializationState> {
     state = state.copyWith(isPermissionsGranted: granted);
 
     if (granted) {
-      _ref.read(usageMonitorServiceProvider).startMonitoring();
+      // 启动配置同步（替代原 UsageMonitorService，仅负责数据同步）
+      _ref.read(configSyncServiceProvider).startSync();
       await MonitorService.startForegroundService();
+      // 启动守护服务（独立进程保活）
+      await MonitorService.startGuardService();
     }
   }
 
@@ -111,8 +146,11 @@ class AppInitializationNotifier extends StateNotifier<AppInitializationState> {
     state = state.copyWith(isOnboardingCompleted: true);
 
     // Onboarding完成后启动监控服务（权限已在onboarding流程中授予）
-    _ref.read(usageMonitorServiceProvider).startMonitoring();
+    // 启动配置同步（替代原 UsageMonitorService，仅负责数据同步）
+    _ref.read(configSyncServiceProvider).startSync();
     await MonitorService.startForegroundService();
+    // 启动守护服务（独立进程保活）
+    await MonitorService.startGuardService();
     print('[AppInitializer] Onboarding completed, monitoring service started');
   }
 

@@ -50,6 +50,19 @@ class ContinuousUsageTab extends ConsumerWidget {
             labels: const ['1', '10', '20', '30'],
             onChanged: (value) => notifier.setRestMinutes(value.round()),
           ),
+          SizedBox(height: AppSpacing.md),
+
+          _buildSliderCard(
+            title: '休息后重置计时',
+            subtitle: '停止使用监控应用后，经过此时间将重置连续使用计时',
+            value: settings.resetAfterRestMinutes.toDouble(),
+            min: 1,
+            max: 10,
+            divisions: 9,
+            unit: '分钟',
+            labels: const ['1', '3', '5', '7', '10'],
+            onChanged: (value) => notifier.setResetAfterRestMinutes(value.round()),
+          ),
           SizedBox(height: AppSpacing.lg),
 
           // 说明卡片

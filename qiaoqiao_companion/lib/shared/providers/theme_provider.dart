@@ -18,7 +18,7 @@ class ThemeState {
   factory ThemeState.initial() => const ThemeState(
     themeMode: ThemeMode.system,
     useDarkMode: false,
-    themeType: AppThemeType.current,
+    themeType: AppThemeType.kawaiiDream,
   );
 
   ThemeState copyWith({
@@ -71,17 +71,22 @@ class ThemeNotifier extends StateNotifier<ThemeState> {
 
       // 加载主题类型
       final themeTypeString = prefs.getString(_themeTypeKey);
-      AppThemeType themeType = AppThemeType.current;
+      AppThemeType themeType = AppThemeType.kawaiiDream;
       if (themeTypeString != null) {
         switch (themeTypeString) {
           case 'pink':
-            themeType = AppThemeType.pink;
+          case 'kawaiiDream':
+            themeType = AppThemeType.kawaiiDream;
             break;
           case 'orange':
-            themeType = AppThemeType.orange;
+          case 'rainbowCandy':
+            themeType = AppThemeType.rainbowCandy;
+            break;
+          case 'softMacaron':
+            themeType = AppThemeType.softMacaron;
             break;
           default:
-            themeType = AppThemeType.current;
+            themeType = AppThemeType.kawaiiDream;
         }
       }
 
@@ -142,16 +147,17 @@ class ThemeNotifier extends StateNotifier<ThemeState> {
     try {
       final prefs = await SharedPreferences.getInstance();
 
-      String typeString = 'current';
+      String typeString = 'kawaiiDream';
       switch (type) {
-        case AppThemeType.pink:
-          typeString = 'pink';
+        case AppThemeType.kawaiiDream:
+          typeString = 'kawaiiDream';
           break;
-        case AppThemeType.orange:
-          typeString = 'orange';
+        case AppThemeType.rainbowCandy:
+          typeString = 'rainbowCandy';
           break;
-        default:
-          typeString = 'current';
+        case AppThemeType.softMacaron:
+          typeString = 'softMacaron';
+          break;
       }
 
       await prefs.setString(_themeTypeKey, typeString);

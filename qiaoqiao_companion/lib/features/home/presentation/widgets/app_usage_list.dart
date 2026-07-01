@@ -192,7 +192,7 @@ class _AppUsageItem extends StatelessWidget {
     final categoryColor = _getCategoryColor();
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: DesignTokens.space12),
+      padding: const EdgeInsets.symmetric(vertical: DesignTokens.space6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -237,8 +237,8 @@ class _AppUsageItem extends StatelessWidget {
               // 使用时长
               Container(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: DesignTokens.space10,
-                  vertical: DesignTokens.space4,
+                  horizontal: DesignTokens.space8,
+                  vertical: DesignTokens.space2,
                 ),
                 decoration: BoxDecoration(
                   color: categoryColor.withOpacity(0.1),
@@ -254,12 +254,12 @@ class _AppUsageItem extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: DesignTokens.space10),
+          const SizedBox(height: DesignTokens.space6),
           // 进度条
           GradientProgress(
             value: summary.usagePercentage.clamp(0.0, 1.0),
             color: _getCategoryColor(),
-            height: 6,
+            height: 4,
           ),
         ],
       ),
@@ -281,8 +281,8 @@ class _AppUsageItem extends StatelessWidget {
             borderRadius: BorderRadius.circular(DesignTokens.radius10),
             child: Image.memory(
               bytes,
-              width: 40,
-              height: 40,
+              width: 36,
+              height: 36,
               fit: BoxFit.cover,
               errorBuilder: (context, error, stackTrace) => _buildFallbackIcon(),
             ),
@@ -298,8 +298,8 @@ class _AppUsageItem extends StatelessWidget {
   /// 构建备用图标
   Widget _buildFallbackIcon() {
     return Container(
-      width: 44,
-      height: 44,
+      width: 36,
+      height: 36,
       decoration: BoxDecoration(
         color: _getCategoryColor(),
         borderRadius: BorderRadius.circular(DesignTokens.radius12),
@@ -308,7 +308,7 @@ class _AppUsageItem extends StatelessWidget {
         child: Icon(
           _getCategoryIconData(),
           color: Colors.white,
-          size: 22,
+          size: 20,
         ),
       ),
     );

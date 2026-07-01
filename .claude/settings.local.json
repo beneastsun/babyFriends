@@ -1,7 +1,6 @@
 {
   "permissions": {
     "allow": [
-      "mcp__filesystem*",
       "mcp__filesystem__directory_tree",
       "mcp__filesystem__list_directory",
       "mcp__filesystem__read_text_file",
@@ -26,7 +25,24 @@
       "Bash(flutter run:*)",
       "mcp__filesystem__write_file",
       "Bash(flutter analyze:*)",
-      "Bash(flutter build:*)"
+      "Bash(flutter build:*)",
+      "Bash(git config:*)",
+      "Bash(ping -n 2 github.com)",
+      "Bash(git fetch:*)",
+      "Bash(git reset:*)",
+      "Bash(git add:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(git rm:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(git stash:*)",
+      "Bash(git log:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(./gradlew compileDebugKotlin)",
+      "Bash(flutter test *)",
+      "Bash(dart analyze *)",
+      "Bash(./qiaoqiao_companion/android/gradlew --stop)"
     ]
   }
 }

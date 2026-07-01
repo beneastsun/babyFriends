@@ -1,17 +1,14 @@
 import 'package:flutter/material.dart';
 import 'app_colors.dart';
 import 'app_color_schemes.dart';
-import 'app_gradients.dart';
-import 'app_solid_colors.dart';
-import 'app_shadows.dart';
 import 'app_text_styles.dart';
 import 'design_tokens.dart';
 
 export 'app_colors.dart';
 export 'app_color_schemes.dart';
-export 'app_gradients.dart';
 export 'app_solid_colors.dart';
 export 'app_shadows.dart';
+export 'app_animations.dart';
 export 'app_text_styles.dart';
 export 'design_tokens.dart';
 

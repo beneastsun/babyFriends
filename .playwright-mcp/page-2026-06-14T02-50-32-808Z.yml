@@ -1,0 +1,33 @@
+- generic [ref=e3]:
+  - navigation [ref=e7]:
+    - link "SG-EXAM" [ref=e8] [cursor=pointer]:
+      - /url: /
+    - generic [ref=e10]:
+      - menubar [ref=e11]:
+        - menuitem "首页" [ref=e12] [cursor=pointer]
+        - menuitem "考试" [ref=e13] [cursor=pointer]
+        - menuitem "课程" [ref=e14] [cursor=pointer]
+        - menuitem "考试记录" [ref=e15] [cursor=pointer]
+        - menuitem "管理后台" [ref=e16] [cursor=pointer]
+      - generic [ref=e17]:
+        - generic [ref=e18] [cursor=pointer]: 注册
+        - generic [ref=e19] [cursor=pointer]: 登录
+      - button "中文" [ref=e22]
+  - generic [ref=e26]:
+    - generic [ref=e29]:
+      - heading "开源项目 sg-exam 功能演示网站" [level=4] [ref=e30]
+      - heading "演示考试、练习、刷题、在线学习等功能" [level=4] [ref=e31]
+      - link "开始使用" [ref=e32] [cursor=pointer]:
+        - /url: "#/courses"
+    - generic [ref=e35]:
+      - heading "热门课程" [level=3] [ref=e39]
+      - generic [ref=e40]:
+        - generic: 
+    - generic [ref=e42]:
+      - generic [ref=e44]:
+        - heading "Copyright © 2019-2024 SG-EXAM" [level=4] [ref=e45]
+        - list [ref=e46]:
+          - listitem [ref=e47]: 联系我们
+          - listitem [ref=e48]: 隐私条款
+      - link "粤 ICP 备 2024192218 号" [ref=e51] [cursor=pointer]:
+        - /url: https://beian.miit.gov.cn/

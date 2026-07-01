@@ -97,7 +97,7 @@ class _ParentPasswordSheetState extends ConsumerState<_ParentPasswordSheet> {
 
     return Container(
       decoration: BoxDecoration(
-        color: AppSolidColors.getBackgroundColor(AppThemeType.current, isDark),
+        color: AppSolidColors.getBackgroundColor(AppThemeType.kawaiiDream, isDark),
         borderRadius: BorderRadius.vertical(top: Radius.circular(DesignTokens.radius24)),
       ),
       child: Column(

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qiaoqiao_companion/core/theme/app_solid_colors.dart';
 import 'package:qiaoqiao_companion/core/theme/app_theme.dart';
 import 'package:qiaoqiao_companion/shared/models/hourly_usage_stats.dart';
+import 'package:qiaoqiao_companion/core/services/config_sync_service.dart';
 import 'package:qiaoqiao_companion/shared/providers/hourly_usage_provider.dart';
 import 'package:qiaoqiao_companion/shared/widgets/design_system/app_card.dart';
 
@@ -53,8 +54,9 @@ class DailyTimelineWidget extends ConsumerWidget {
               Material(
                 color: Colors.transparent,
                 child: InkWell(
-                  onTap: () {
-                    ref
+                  onTap: () async {
+                    await ref.read(configSyncServiceProvider).refreshTodayUsage();
+                    await ref
                         .read(todayHourlyTimelineNotifierProvider.notifier)
                         .refresh();
                     onRefresh?.call();
@@ -136,10 +138,10 @@ class _TimelineGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const maxBarHeight = 80.0;
+    const maxBarHeight = 120.0;
     const maxSeconds = 3600;
-    const yAxisWidth = 36.0;
-    const labelHeight = 32.0;
+    const yAxisWidth = 32.0;
+    const labelHeight = 24.0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -147,30 +149,18 @@ class _TimelineGrid extends StatelessWidget {
         Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            // Y轴刻度
+            // Y轴刻度 - 4档（0/20/40/60）
             SizedBox(
               width: yAxisWidth,
               height: maxBarHeight,
-              child: Stack(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Positioned(
-                    top: 0,
-                    child: Text(
-                      '60分',
-                      style: AppTextStyles.labelSmall.copyWith(
-                        color: AppColors.textHintLight,
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    top: maxBarHeight / 2 - 8,
-                    child: Text(
-                      '30分',
-                      style: AppTextStyles.labelSmall.copyWith(
-                        color: AppColors.textHintLight,
-                      ),
-                    ),
-                  ),
+                  Text('60', style: AppTextStyles.labelSmall.copyWith(color: AppColors.textHintLight)),
+                  Text('40', style: AppTextStyles.labelSmall.copyWith(color: AppColors.textHintLight)),
+                  Text('20', style: AppTextStyles.labelSmall.copyWith(color: AppColors.textHintLight)),
+                  Text('0', style: AppTextStyles.labelSmall.copyWith(color: AppColors.textHintLight)),
                 ],
               ),
             ),
@@ -219,6 +209,17 @@ class _TimelineGrid extends StatelessWidget {
                     return Stack(
                       clipBehavior: Clip.none,
                       children: [
+                        // 横向虚线网格（4条：0/20/40/60分）
+                        Positioned(
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          height: maxBarHeight,
+                          child: CustomPaint(
+                            painter: _GridlinePainter(maxBarHeight: maxBarHeight),
+                            size: Size.infinite,
+                          ),
+                        ),
                         Positioned(
                           bottom: 0,
                           left: 0,
@@ -286,6 +287,44 @@ class _TimelineGrid extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 横向虚线网格绘制器
+///
+/// 在柱状图区域绘制 4 条水平虚线，对应 0/20/40/60 分钟刻度。
+/// 网格线颜色浅、虚线样式，不抢视觉焦点，仅作读数辅助。
+class _GridlinePainter extends CustomPainter {
+  final double maxBarHeight;
+
+  const _GridlinePainter({required this.maxBarHeight});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = AppColors.textHintLight.withOpacity(0.45)
+      ..strokeWidth = 1.0
+      ..style = PaintingStyle.stroke;
+
+    // 4 档刻度：60分(top=0)、40分、20分、0分(bottom=maxBarHeight)
+    const dashWidth = 4.0;
+    const dashGap = 3.0;
+    const levels = 4;
+
+    for (var i = 0; i < levels; i++) {
+      final y = (i / (levels - 1)) * maxBarHeight;
+      // 绘制虚线
+      double x = 0;
+      while (x < size.width) {
+        final end = (x + dashWidth).clamp(0.0, size.width);
+        canvas.drawLine(Offset(x, y), Offset(end, y), paint);
+        x += dashWidth + dashGap;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _GridlinePainter oldDelegate) =>
+      oldDelegate.maxBarHeight != maxBarHeight;
 }
 
 /// 单个小时柱子

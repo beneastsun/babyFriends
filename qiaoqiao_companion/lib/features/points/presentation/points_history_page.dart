@@ -56,7 +56,7 @@ class _PointsHistoryPageState extends ConsumerState<PointsHistoryPage>
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
-          color: AppSolidColors.getBackgroundColor(AppThemeType.current, isDark),
+          color: AppSolidColors.getBackgroundColor(AppThemeType.kawaiiDream, isDark),
         ),
         child: SafeArea(
           child: Column(

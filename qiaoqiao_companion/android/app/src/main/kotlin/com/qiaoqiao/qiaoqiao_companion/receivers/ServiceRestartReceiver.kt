@@ -4,12 +4,13 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.qiaoqiao.qiaoqiao_companion.services.GuardService
 import com.qiaoqiao.qiaoqiao_companion.services.MonitorForegroundService
 import com.qiaoqiao.qiaoqiao_companion.workers.KeepAliveWorker
 
 /**
  * 服务重启广播接收器
- * 监听服务被销毁的广播并尝试重启
+ * 监听服务被销毁的广播并尝试重启所有服务
  */
 class ServiceRestartReceiver : BroadcastReceiver() {
 
@@ -33,13 +34,20 @@ class ServiceRestartReceiver : BroadcastReceiver() {
         when (intent.action) {
             ACTION_RESTART_SERVICE -> {
                 try {
-                    Log.d(TAG, "Restarting service...")
-                    // 重启前台服务
+                    Log.d(TAG, "Restarting all services...")
+
+                    // 1. 启动守护服务
+                    GuardService.start(context)
+
+                    // 2. 启动主监控服务
                     MonitorForegroundService.start(context)
-                    // 确保 WorkManager 也在运行
+
+                    // 3. 确保 WorkManager 也在运行
                     KeepAliveWorker.start(context)
+
+                    Log.d(TAG, "All services restarted")
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to restart service", e)
+                    Log.e(TAG, "Failed to restart services", e)
                 }
             }
         }

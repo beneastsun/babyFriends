@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App Name (由 local.properties 中的 app.appName 配置) -->
+    <string name="app_name">会飞的猪</string>
+
+    <!-- App Icon Theme: default / v1 / haibianshanya / jiaoshi -->
+    <string name="app_icon_theme">v1</string>
+
+    <!-- App Lock Overlay -->
+    <string name="app_lock_title">应用锁定</string>
+    <string name="app_lock_message">为保护孩子的健康使用习惯\n需要家长密码才能关闭</string>
+    <string name="app_lock_password_hint">请输入家长密码</string>
+    <string name="app_lock_error">密码错误，请重试</string>
+    <string name="app_lock_unlock">解除锁定</string>
+    <string name="app_lock_reopen">重新打开App</string>
+
+    <!-- Accessibility Service -->
+    <string name="accessibility_service_description">巧巧小伙伴需要此服务来检测您正在使用的应用，以便在娱乐时间到达限制时提醒您。此服务不会收集任何个人信息。</string>
+</resources>

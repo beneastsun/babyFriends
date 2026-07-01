@@ -350,6 +350,12 @@ class _ReminderDialogState extends State<ReminderDialog>
 
   /// 构建倒计时
   Widget _buildCountdown() {
+    final minutes = (_remainingSeconds ?? 0) ~/ 60;
+    final seconds = (_remainingSeconds ?? 0) % 60;
+    final timeText = minutes > 0
+        ? '$minutes分${seconds}秒'
+        : '${seconds}秒';
+
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: DesignTokens.space24,
@@ -372,17 +378,10 @@ class _ReminderDialogState extends State<ReminderDialog>
           ),
           const SizedBox(width: DesignTokens.space10),
           Text(
-            '$_remainingSeconds',
+            timeText,
             style: AppTextStyles.displaySmall.copyWith(
               color: Colors.white,
               fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(width: DesignTokens.space6),
-          Text(
-            '秒',
-            style: AppTextStyles.labelMedium.copyWith(
-              color: Colors.white.withValues(alpha: 0.9),
             ),
           ),
         ],

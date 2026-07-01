@@ -18,6 +18,9 @@
     <!-- 唤醒锁权限（用于定时任务） -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- 请求忽略电池优化（确保后台服务不被 MIUI 杀死） -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <!-- Android 11+ 包可见性权限（用于查询所有已安装应用） -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
@@ -26,10 +29,26 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
 
+    <!-- 定时闹钟权限（用于精确保活定时） -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
     <application
-        android:label="纹纹小伙伴"
+        android:label="@string/app_name"
         android:name=".QiaoqiaoApplication"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher">
+
+        <!-- 移除默认的 WorkManager 初始化器，使用自定义的 QiaoqiaoApplication 进行按需初始化 -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
 
         <activity
             android:name=".MainActivity"
@@ -55,17 +74,47 @@
             android:name=".services.MonitorForegroundService"
             android:enabled="true"
             android:exported="false"
+            android:stopWithTask="false"
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="monitor" />
         </service>
 
+        <!-- 守护服务 - 独立进程运行，用于监控和重启主服务 -->
+        <service
+            android:name=".services.GuardService"
+            android:enabled="true"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:process=":guard"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="guard" />
+        </service>
+
+        <!-- 前台应用监听服务 — AccessibilityService 方案 -->
+        <!-- 在 MIUI 等系统上 queryEvents 不可靠时，通过无障碍服务监听前台 app 切换 -->
+        <service
+            android:name=".services.ForegroundAppWatcher"
+            android:enabled="true"
+            android:exported="false"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
         <!-- 开机自启动广播接收器 -->
         <receiver
             android:name=".receivers.BootReceiver"
             android:enabled="true"
-            android:exported="false">
+            android:exported="true"
+            android:directBootAware="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
@@ -79,9 +128,46 @@
             android:enabled="true"
             android:exported="false">
             <intent-filter>
-                <action android:name="com.qiaoqiao.qiaoqiao_companion.RESTART_SERVICE" />
+                <action android:name="${applicationId}.RESTART_SERVICE" />
             </intent-filter>
         </receiver>
+
+        <!-- 闹钟广播接收器 - 用于定时唤醒检查 -->
+        <receiver
+            android:name=".receivers.AlarmReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="${applicationId}.KEEP_ALIVE" />
+                <action android:name="${applicationId}.QUICK_RESTART" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 闹钟代理Activity - 透明，用于闹钟触发时重启服务 -->
+        <activity
+            android:name=".activities.AlarmProxyActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- App锁屏覆盖Activity -->
+        <activity
+            android:name=".activities.AppLockOverlayActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen" />
+
+        <!-- 密码输入Activity — 替代overlay内嵌EditText，避免MIUI resize循环闪缩 -->
+        <activity
+            android:name=".activities.PasswordInputActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

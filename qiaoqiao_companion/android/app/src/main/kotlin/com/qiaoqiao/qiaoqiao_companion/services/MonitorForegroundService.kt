@@ -1,5 +1,6 @@
 package com.qiaoqiao.qiaoqiao_companion.services
 
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -9,13 +10,29 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.qiaoqiao.qiaoqiao_companion.MainActivity
 import com.qiaoqiao.qiaoqiao_companion.R
+import com.qiaoqiao.qiaoqiao_companion.activities.AlarmProxyActivity
+import com.qiaoqiao.qiaoqiao_companion.activities.AppLockOverlayActivity
+import com.qiaoqiao.qiaoqiao_companion.channels.OverlayChannel
+import com.qiaoqiao.qiaoqiao_companion.managers.AppLockManager
+import com.qiaoqiao.qiaoqiao_companion.monitor.EnforcementEngine
+import com.qiaoqiao.qiaoqiao_companion.monitor.EngineState
+import com.qiaoqiao.qiaoqiao_companion.monitor.NativeContinuousUsageTracker
+import com.qiaoqiao.qiaoqiao_companion.monitor.NativeOverlayManager
+import com.qiaoqiao.qiaoqiao_companion.monitor.NativeRuleRepository
+import com.qiaoqiao.qiaoqiao_companion.monitor.RuleEvaluator
+import com.qiaoqiao.qiaoqiao_companion.monitor.WidgetManager
+import com.qiaoqiao.qiaoqiao_companion.receivers.AlarmReceiver
 import com.qiaoqiao.qiaoqiao_companion.receivers.ServiceRestartReceiver
+import com.qiaoqiao.qiaoqiao_companion.utils.UsageStatsHelper
 import com.qiaoqiao.qiaoqiao_companion.workers.KeepAliveWorker
 
 /**
@@ -45,10 +62,23 @@ class MonitorForegroundService : Service() {
         fun start(context: Context) {
             val intent = Intent(context, MonitorForegroundService::class.java)
             intent.action = "START"
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            try {
+                // 先尝试 startService（MIUI 对 startForegroundService 有额外限制）
+                // 服务在 onCreate 中会调用 startForeground() 提升为前台服务
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    try {
+                        context.startService(intent)
+                        Log.d(TAG, "Started via startService()")
+                    } catch (e: Exception) {
+                        // startService 也被限制时，尝试 startForegroundService
+                        Log.w(TAG, "startService failed, trying startForegroundService", e)
+                        context.startForegroundService(intent)
+                    }
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start service", e)
             }
         }
 
@@ -74,20 +104,40 @@ class MonitorForegroundService : Service() {
     }
 
     private var notificationManager: NotificationManager? = null
-    private var currentTitle = "纹纹守护中"
+    private var currentTitle: String = ""
     private var currentMessage = "正在保护你的健康使用习惯"
+
+    // 原生监控引擎（Flutter 引擎死亡时仍能工作）
+    private var monitorHandler: Handler? = null
+    private val MONITOR_INTERVAL_MS = 5_000L // 5秒检查一次
+    private val INITIAL_DELAY_MS = 1_000L // 首次延迟1秒
+    private var engine: EnforcementEngine? = null
+
+    // queryEvents 动态查询窗口（毫秒）。MIUI 持续使用同一 app 时不产生新 RESUMED 事件，
+    // 窗口必须覆盖会话时长。每 60 秒从配置刷新：max(2小时, limitMinutes*2*60*1000)。
+    private var cachedQueryWindowMs: Long = 2 * 60 * 60 * 1000L
+    private var settingsRefreshPollCount = 0
 
     override fun onCreate() {
         super.onCreate()
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         createNotificationChannel()
+        // 初始化应用名称
+        currentTitle = getString(R.string.app_name) + "守护中"
+        // 在 onCreate 中立即调用 startForeground，满足 Android 12+ 5秒超时要求
+        // 同时确保 START_STICKY 重建服务时（intent=null）也能正确启动前台服务
+        startAsForeground()
         Log.d(TAG, "Service created")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             "START" -> {
-                startAsForeground()
+                // startForeground 已在 onCreate 中调用，这里确保服务已启动
+                if (!isRunning) {
+                    startAsForeground()
+                }
+                startNativeMonitoring()
             }
             "STOP" -> {
                 stopForegroundService()
@@ -96,6 +146,19 @@ class MonitorForegroundService : Service() {
                 currentTitle = intent.getStringExtra("title") ?: currentTitle
                 currentMessage = intent.getStringExtra("message") ?: currentMessage
                 updateNotification()
+            }
+            // null intent (START_STICKY 重建) 时也需要启动原生监控
+            null -> {
+                startNativeMonitoring()
+                // START_STICKY 重建 = 被系统杀死后重启，检查是否需要显示 AppLock
+                // 但如果 EnforcementEngine 的 lock overlay 已经在显示（REST 状态），不要重复弹出
+                if (AppLockManager.shouldShowLock(applicationContext) && engine?.state != EngineState.REST) {
+                    try {
+                        AppLockOverlayActivity.start(applicationContext)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to show app lock on restart", e)
+                    }
+                }
             }
         }
         return START_STICKY
@@ -108,13 +171,16 @@ class MonitorForegroundService : Service() {
      */
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val appName = getString(R.string.app_name)
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "保持纹纹小伙伴在后台运行"
+                description = "保持${appName}在后台运行"
                 setShowBadge(false)
+                setSound(null, null)
+                enableVibration(false)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
             notificationManager?.createNotificationChannel(channel)
@@ -136,7 +202,7 @@ class MonitorForegroundService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(currentTitle)
+            .setContentTitle("$currentTitle [PID:${android.os.Process.myPid()}]")
             .setContentText(currentMessage)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(pendingIntent)
@@ -144,7 +210,7 @@ class MonitorForegroundService : Service() {
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
     }
 
@@ -178,6 +244,7 @@ class MonitorForegroundService : Service() {
      * 停止前台服务
      */
     private fun stopForegroundService() {
+        stopNativeMonitoring()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
         isRunning = false
@@ -194,8 +261,146 @@ class MonitorForegroundService : Service() {
         }
     }
 
+    // ==================== 原生监控逻辑 ====================
+
+    /**
+     * 启动原生监控循环
+     * 在 Flutter 引擎死亡时仍能检测和阻止被限制的 App
+     */
+    private fun startNativeMonitoring() {
+        if (monitorHandler != null) {
+            Log.d(TAG, "Native monitoring already running")
+            return
+        }
+
+        try {
+            // 清除 Flutter 侧 OverlayChannel 可能残留的旧 widget，
+            // 防止与 EnforcementEngine 的新 widget 同时显示
+            try {
+                OverlayChannel.instance?.clearAllOverlays()
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to clear OverlayChannel overlays", e)
+            }
+
+            val repository = NativeRuleRepository(applicationContext)
+            val ruleEvaluator = RuleEvaluator(repository)
+            val usageTracker = NativeContinuousUsageTracker(repository)
+            val overlayManager = NativeOverlayManager(applicationContext)
+            overlayManager.clearAllOverlays()  // 清除可能残留的旧原生 overlay
+            val widgetManager = WidgetManager(overlayManager)
+
+            engine = EnforcementEngine(
+                repository = repository,
+                ruleEvaluator = ruleEvaluator,
+                usageTracker = usageTracker,
+                widgetManager = widgetManager,
+                overlayManager = overlayManager,
+                context = applicationContext
+            )
+
+            // 倒计时归零衔接：widget ticker 归零瞬间立刻触发 REST（消除 5s 空窗）
+            widgetManager.onCountdownZero = {
+                engine?.onCountdownZero()
+            }
+
+            // Register overlay dismiss callback — when user clicks "回到纹纹小伙伴" button
+            overlayManager.onLockOverlayDismissed = {
+                // onOverlayDismissed 已同步完成状态转换（REST → IDLE，会话停用，tracker reset），
+                // overlay 通过 hideOverlayImmediate() 立即移除（无 200ms 动画窗口）。
+                // 不再在此触发立即 poll —— 立即 poll 会在 launchMainActivity 生效前检测到
+                // 被监控 app 仍在前台，立刻新建会话并弹出 countdown widget，与淡出的 lock overlay
+                // 叠加、按钮重复点击竞争，导致"弹窗不消失/卡死"。下一个常规 5s 轮询会自然处理状态。
+                engine?.onOverlayDismissed()
+            }
+
+            // 家长入口回调 — 从倒计时widget点击🔒图标，显示自定义数字键盘
+            overlayManager.onParentEntryFromWidget = {
+                overlayManager.isPasswordInputActive = true
+                overlayManager.showPasswordKeypadPublic()
+            }
+
+            // 家长密码验证成功回调 — 密码正确后关闭倒计时或锁定覆盖层
+            // 由 NativeOverlayManager 的自定义数字键盘验证成功后调用
+            overlayManager.onParentPasswordVerified = {
+                overlayManager.isPasswordInputActive = false
+                NativeOverlayManager.passwordInputActivityActive = false
+                val currentState = engine?.state
+                if (currentState == EngineState.COUNTDOWN) {
+                    // 从倒计时widget家长入口验证成功：关闭倒计时，停用会话，转IDLE
+                    engine?.onParentOverrideFromCountdown()
+                } else if (currentState == EngineState.REST) {
+                    // 从lock overlay家长入口验证成功：关闭overlay，停用会话，转IDLE
+                    engine?.onParentOverrideFromLock()
+                }
+            }
+
+            // 从 DB 恢复状态（进程被杀后重启时，可能存在活跃倒计时或休息中）
+            engine!!.restoreFromDB(System.currentTimeMillis())
+
+            monitorHandler = Handler(Looper.getMainLooper())
+
+            // 首次延迟 1 秒启动（加快检测响应）
+            monitorHandler?.postDelayed(monitorRunnable, INITIAL_DELAY_MS)
+            Log.d(TAG, "Native monitoring started with EnforcementEngine")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start native monitoring", e)
+        }
+    }
+
+    /**
+     * 停止原生监控循环
+     */
+    private fun stopNativeMonitoring() {
+        monitorHandler?.removeCallbacks(monitorRunnable)
+        monitorHandler = null
+        engine?.destroy()
+        engine = null
+        Log.d(TAG, "Native monitoring stopped")
+    }
+
+    /**
+     * 原生监控轮询 Runnable
+     * 每 5 秒检测前台 App，委托 EnforcementEngine 处理状态机逻辑
+     */
+    private val monitorRunnable = object : Runnable {
+        override fun run() {
+            try {
+                val now = System.currentTimeMillis()
+
+                // 每 60 秒（12 次轮询）刷新一次配置，计算动态查询窗口
+                // MIUI 持续使用同一 app 时不产生新 RESUMED 事件，窗口必须 ≥ 会话时长
+                if (settingsRefreshPollCount % 12 == 0) {
+                    try {
+                        val repo = NativeRuleRepository(applicationContext)
+                        val settings = repo.getContinuousUsageSettings()
+                        // 窗口 = max(2小时, 限制时长 * 2)，保证 RESUMED 不掉出窗口
+                        cachedQueryWindowMs = maxOf(
+                            2 * 60 * 60 * 1000L,
+                            settings.limitSeconds * 1000L * 2
+                        )
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to refresh settings for query window", e)
+                    }
+                }
+                settingsRefreshPollCount++
+
+                val foregroundApp = UsageStatsHelper.getCurrentForegroundApp(
+                    applicationContext, packageName, cachedQueryWindowMs
+                )
+
+                // 委托 EnforcementEngine 处理所有规则检查和 UI 决策
+                engine?.onPoll(now, foregroundApp, UsageStatsHelper.lastDetectionWasSelfApp)
+            } catch (e: Exception) {
+                Log.e(TAG, "Native monitoring error", e)
+            }
+
+            monitorHandler?.postDelayed(this, MONITOR_INTERVAL_MS)
+        }
+    }
+
     override fun onDestroy() {
         isRunning = false
+        stopNativeMonitoring()
         Log.d(TAG, "Service destroyed")
 
         // 尝试重启服务
@@ -210,5 +415,138 @@ class MonitorForegroundService : Service() {
         }
 
         super.onDestroy()
+    }
+
+    /**
+     * 当任务被移除时调用（用户在最近任务中滑掉App）
+     *
+     * MIUI force-stop 会取消 AlarmManager 闹钟，但 setAlarmClock 类型
+     * 在某些 MIUI 版本上可能幸存。使用多种 PendingIntent 类型和
+     * 多种闹钟调度方式增加幸存概率。
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        Log.d(TAG, "Task removed by user")
+
+        // 0. 让引擎持久化内存状态（倒计时等），以便重启后能恢复
+        engine?.persistStateBeforeDeath()
+
+        // 1. 最先显示 AppLock（最重要，趁进程还活着）
+        //    但如果 EnforcementEngine 的 lock overlay 已经在显示，不要重复弹出
+        //    AppLockOverlayActivity 会创建全屏通知，与 lock overlay 叠加导致闪缩
+        if (AppLockManager.isLockEnabled(applicationContext) && engine?.state != EngineState.REST) {
+            Log.d(TAG, "App lock is enabled, showing overlay")
+            // 真正被用户滑掉 app 时才记录触发时间
+            AppLockManager.setLastTriggerTime(applicationContext, System.currentTimeMillis())
+            try {
+                AppLockOverlayActivity.start(applicationContext)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to show overlay", e)
+            }
+        }
+
+        // 2. 尝试重启自身（趁进程还活着）
+        try {
+            val restartIntent = Intent(applicationContext, MonitorForegroundService::class.java)
+            restartIntent.action = "START"
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                applicationContext.startForegroundService(restartIntent)
+            } else {
+                applicationContext.startService(restartIntent)
+            }
+            Log.d(TAG, "Service self-restart triggered")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to restart service", e)
+        }
+
+        // 3. 设置多种类型的冗余闹钟（增加幸存概率）
+        try {
+            scheduleRedundantAlarms(applicationContext)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to schedule redundant alarms", e)
+        }
+
+        super.onTaskRemoved(rootIntent)
+    }
+
+    /**
+     * 设置多种类型的冗余闹钟
+     *
+     * MIUI 的 force-stop 取消闹钟行为因版本而异，使用多种 PendingIntent
+     * 类型（Activity / ForegroundService）和多种调度方式
+     * （setAlarmClock / setExactAndAllowWhileIdle）增加至少一种幸存概率。
+     */
+    private fun scheduleRedundantAlarms(context: Context) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+
+        // 类型 A: setAlarmClock + AlarmProxyActivity（当前主要方案）
+        AlarmReceiver.setAlarm(context)
+        AlarmReceiver.setQuickAlarm(context, 2000)
+
+        // 类型 B: setExactAndAllowWhileIdle + ForegroundService（直接重启服务，无Activity开销）
+        try {
+            val fgIntent = Intent(context, MonitorForegroundService::class.java).apply {
+                action = "START"
+            }
+            val fgPending = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                PendingIntent.getForegroundService(
+                    context,
+                    2001,
+                    fgIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            } else {
+                PendingIntent.getService(
+                    context,
+                    2001,
+                    fgIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    SystemClock.elapsedRealtime() + 5_000,
+                    fgPending
+                )
+            } else {
+                alarmManager.setExact(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    SystemClock.elapsedRealtime() + 5_000,
+                    fgPending
+                )
+            }
+            Log.d(TAG, "Redundant alarm (ForegroundService) set for 5s")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to set ForegroundService alarm", e)
+        }
+
+        // 类型 C: setExactAndAllowWhileIdle + AlarmProxyActivity（延迟稍长，防撞车）
+        try {
+            val proxyIntent = Intent(context, AlarmProxyActivity::class.java).apply {
+                action = "REDUNDANT_KEEP_ALIVE"
+            }
+            val proxyPending = PendingIntent.getActivity(
+                context,
+                2002,
+                proxyIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    SystemClock.elapsedRealtime() + 10_000,
+                    proxyPending
+                )
+            } else {
+                alarmManager.setExact(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    SystemClock.elapsedRealtime() + 10_000,
+                    proxyPending
+                )
+            }
+            Log.d(TAG, "Redundant alarm (AlarmProxyActivity) set for 10s")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to set ProxyActivity alarm", e)
+        }
     }
 }

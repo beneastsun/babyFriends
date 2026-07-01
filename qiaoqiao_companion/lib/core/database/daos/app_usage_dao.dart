@@ -1,6 +1,7 @@
 import 'package:qiaoqiao_companion/core/database/app_database.dart';
 import 'package:qiaoqiao_companion/core/constants/database_constants.dart';
 import 'package:qiaoqiao_companion/shared/models/models.dart';
+import 'package:sqflite/sqflite.dart';
 
 /// 应用使用记录 DAO
 class AppUsageDao {
@@ -13,6 +14,15 @@ class AppUsageDao {
     return await db.insert(
       DatabaseConstants.tableAppUsageRecords,
       record.toMap(),
+    );
+  }
+
+  Future<int> insertOrUpdate(AppUsageRecord record) async {
+    final db = await _database.database;
+    return await db.insert(
+      DatabaseConstants.tableAppUsageRecords,
+      record.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
 
