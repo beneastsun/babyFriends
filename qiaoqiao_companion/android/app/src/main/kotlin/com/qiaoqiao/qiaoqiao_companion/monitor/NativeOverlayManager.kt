@@ -824,6 +824,9 @@ class NativeOverlayManager(private val context: Context) {
         countdownCurrentRemainingMs = 0L
         stopPulseAnimation()
 
+        // 清除能量条覆盖色引用，便于 GC（在 countdownWidgetView = null 之前）
+        (countdownWidgetView?.findViewWithTag("countdown_energy_bar") as? EnergyBarView)?.overrideColor = null
+
         val view = countdownWidgetView
         countdownWidgetView = null
         isCountdownShowing = false
@@ -943,6 +946,20 @@ class NativeOverlayManager(private val context: Context) {
                 countdownCurrentRemainingMs = remainingMs
 
                 countdownTextTime?.text = formatCountdownTime(remainingSec.toLong())
+
+                // 驱动能量条 progress（递增型：已用比例增加→填充越多）
+                val totalSec = (countdownTotalMs / 1000L).coerceAtLeast(1L)
+                val elapsedSec = (totalSec - remainingSec.toLong()).coerceAtLeast(0L)
+                val progress = (elapsedSec.toFloat() / totalSec.toFloat()).coerceIn(0f, 1f)
+                (countdownWidgetView?.findViewWithTag("countdown_energy_bar") as? EnergyBarView)?.progress = progress
+
+                // ≤5 分钟才显示倒计时文字，否则隐藏（弱化数字焦虑）
+                val timeView = countdownTextTime
+                if (remainingSec <= 300 && remainingSec > 0) {
+                    timeView?.visibility = View.VISIBLE
+                } else {
+                    timeView?.visibility = View.GONE
+                }
 
                 // 3分钟提醒：仅当总时长 > 3分钟时触发（避免短限制在开始时误触发）
                 if (!countdownAlert3minFired && startSeconds > 180 && remainingSec <= 180 && remainingSec > 120) {
@@ -1216,6 +1233,9 @@ class NativeOverlayManager(private val context: Context) {
 
             // 启动脉冲动画
             startPulseAnimation(pulsePeriod)
+
+            // 同步能量条覆盖色（≤5min 阶段沿用 WidgetManager 色阶）
+            (countdownWidgetView?.findViewWithTag("countdown_energy_bar") as? EnergyBarView)?.overrideColor = color
         } catch (e: Exception) {
             Log.e(TAG, "Failed to set countdown color", e)
         }
