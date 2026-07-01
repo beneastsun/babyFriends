@@ -13,4 +13,7 @@
     <string name="app_lock_error">密码错误，请重试</string>
     <string name="app_lock_unlock">解除锁定</string>
     <string name="app_lock_reopen">重新打开App</string>
+
+    <!-- Accessibility Service -->
+    <string name="accessibility_service_description">巧巧小伙伴需要此服务来检测您正在使用的应用，以便在娱乐时间到达限制时提醒您。此服务不会收集任何个人信息。</string>
 </resources>
