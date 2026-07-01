@@ -11,6 +11,8 @@ import 'package:qiaoqiao_companion/features/parent_mode/presentation/parent_pass
 import 'package:qiaoqiao_companion/features/parent_mode/data/parent_password_repository.dart';
 import 'package:qiaoqiao_companion/features/parent_mode/domain/parent_auth_service.dart';
 import 'package:qiaoqiao_companion/shared/providers/theme_provider.dart';
+import 'package:qiaoqiao_companion/shared/providers/today_usage_provider.dart';
+import 'package:qiaoqiao_companion/shared/widgets/design_system/gradient_progress.dart';
 import 'package:qiaoqiao_companion/core/theme/app_solid_colors.dart';
 
 /// 规则页面
@@ -75,7 +77,7 @@ class _RulesPageState extends ConsumerState<RulesPage> {
                 const SizedBox(height: DesignTokens.space20),
 
                 // 时间规则卡片
-                _TimeRulesCard(),
+                const TimeRulesCard(),
                 const SizedBox(height: DesignTokens.space20),
 
                 // 时段规则（禁止/开放）
@@ -231,7 +233,9 @@ class _HelpItem extends StatelessWidget {
 }
 
 /// 时间规则卡片
-class _TimeRulesCard extends ConsumerWidget {
+class TimeRulesCard extends ConsumerWidget {
+  const TimeRulesCard({super.key});
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeType = ref.watch(themeTypeProvider);
@@ -274,6 +278,15 @@ class _TimeRulesCard extends ConsumerWidget {
             value: _formatMinutes(weekendMinutes),
             color: AppColors.secondary,
           ),
+          if (totalRule?.enabled == true) ...[
+            const Divider(height: DesignTokens.space24),
+            TodayUsedSection(
+              usedSeconds: ref.watch(todayUsageProvider).totalDurationSeconds,
+              limitMinutes: (DateTime.now().weekday == 6 || DateTime.now().weekday == 7
+                  ? weekendMinutes
+                  : weekdayMinutes),
+            ),
+          ],
         ],
       ),
     );
@@ -930,5 +943,51 @@ class _ParentSettingsCard extends ConsumerWidget {
         context.push('/parent-mode');
       }
     }
+  }
+}
+
+/// 今日已用时长区块
+///
+/// 纯展示 widget：根据 [usedSeconds] 和 [limitMinutes] 渲染"今日已用 X / Y 分钟"
+/// 文字与进度条。进度条复用 [UsageProgress]，自动按比例变色
+///（<70% success、<90% warning、>=90% error）。
+///
+/// 当 [usedSeconds] 超过 [limitMinutes] 时，进度条 clamp 到 100%，
+/// 文字仍显示真实已用值，方便家长看到实际超出多少。
+class TodayUsedSection extends ConsumerWidget {
+  final int usedSeconds;
+  final int limitMinutes;
+
+  const TodayUsedSection({
+    super.key,
+    required this.usedSeconds,
+    required this.limitMinutes,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final usedMinutes = usedSeconds ~/ 60;
+    final percentage = limitMinutes > 0
+        ? (usedMinutes / limitMinutes).clamp(0.0, 1.0)
+        : 0.0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.timer_outlined, color: AppColors.primary, size: 20),
+            const SizedBox(width: DesignTokens.space12),
+            Expanded(child: Text('今日已用', style: AppTextStyles.bodyMedium)),
+            Text(
+              '$usedMinutes / $limitMinutes 分钟',
+              style: AppTextStyles.labelMedium.copyWith(color: AppColors.primary),
+            ),
+          ],
+        ),
+        const SizedBox(height: DesignTokens.space8),
+        UsageProgress(percentage: percentage),
+      ],
+    );
   }
 }
