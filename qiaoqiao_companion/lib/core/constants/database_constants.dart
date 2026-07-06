@@ -3,7 +3,7 @@ class DatabaseConstants {
   DatabaseConstants._();
 
   static const String databaseName = 'qiaoqiao_companion.db';
-  static const int databaseVersion = 5;
+  static const int databaseVersion = 6;
 
   // 表名
   static const String tableAppUsageRecords = 'app_usage_records';
@@ -21,6 +21,12 @@ class DatabaseConstants {
 
   // v4 新增表
   static const String tableAppSettings = 'app_settings';
+
+  // v6 新增表
+  static const String tableTaskDefinitions = 'task_definitions';
+  static const String tableTaskCheckins = 'task_checkins';
+  static const String tableTaskPenalties = 'task_penalties';
+  static const String tableDailyLimitAdjustments = 'daily_limit_adjustments';
 }
 
 /// 应用分类枚举
@@ -137,6 +143,39 @@ enum PointsCategory {
   other,             // 其他
 }
 
+/// 打卡模式枚举
+enum CheckinMode {
+  self('self', '自助打卡'),
+  parentConfirm('parentConfirm', '需家长确认');
+
+  const CheckinMode(this.code, this.label);
+  final String code;
+  final String label;
+
+  static CheckinMode fromCode(String code) {
+    return CheckinMode.values.firstWhere(
+      (e) => e.code == code,
+      orElse: () => CheckinMode.self,
+    );
+  }
+}
+
+/// 日限额调整来源
+enum LimitAdjustmentSource {
+  coupon('coupon'),
+  taskPenalty('task_penalty'),
+  parentGrant('parent_grant');
+
+  const LimitAdjustmentSource(this.code);
+  final String code;
+
+  static LimitAdjustmentSource fromCode(String code) {
+    return LimitAdjustmentSource.values.firstWhere(
+      (e) => e.code == code,
+      orElse: () => LimitAdjustmentSource.parentGrant,
+    );
+  }
+}
 /// 积分边界常量
 class PointsConstants {
   PointsConstants._();
