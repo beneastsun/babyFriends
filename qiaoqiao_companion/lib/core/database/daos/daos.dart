@@ -12,3 +12,6 @@ export 'hourly_usage_dao.dart';
 export 'monitored_app_dao.dart';
 export 'time_period_dao.dart';
 export 'continuous_session_dao.dart';
+
+// v6 新增：日限额调整 DAO
+export 'daily_limit_adjustment_dao.dart';
