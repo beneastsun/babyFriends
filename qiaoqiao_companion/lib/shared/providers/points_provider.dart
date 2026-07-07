@@ -53,8 +53,10 @@ class PointsNotifier extends StateNotifier<PointsState> {
   }
 
   /// 添加积分
-  Future<bool> addPoints(int amount, String reason) async {
-    final newBalance = await _pointsDao.addPoints(amount, reason);
+  Future<bool> addPoints(int amount, String reason, {
+    PointsCategory category = PointsCategory.other,
+  }) async {
+    final newBalance = await _pointsDao.addPoints(amount, reason, category: category);
     state = state.copyWith(
       balance: newBalance,
       todayEarned: state.todayEarned + amount,
@@ -63,8 +65,10 @@ class PointsNotifier extends StateNotifier<PointsState> {
   }
 
   /// 消耗积分
-  Future<bool> deductPoints(int amount, String reason) async {
-    final result = await _pointsDao.deductPoints(amount, reason);
+  Future<bool> deductPoints(int amount, String reason, {
+    PointsCategory category = PointsCategory.other,
+  }) async {
+    final result = await _pointsDao.deductPoints(amount, reason, category: category);
     if (result != null) {
       state = state.copyWith(balance: result);
       return true;
