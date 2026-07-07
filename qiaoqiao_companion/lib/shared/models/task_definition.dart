@@ -13,6 +13,8 @@ class TaskDefinition {
   final int? dailyPointsCap;
   final CheckinMode checkinMode;
   final int penaltyMinutes;
+  final String? reminderTime;           // 提醒时间 HH:MM
+  final int reminderRepeatInterval;     // 重复间隔分钟（0=不重复）
   final bool enabled;
   final int sortOrder;
   final DateTime createdAt;
@@ -30,6 +32,8 @@ class TaskDefinition {
     this.dailyPointsCap,
     this.checkinMode = CheckinMode.self,
     this.penaltyMinutes = 0,
+    this.reminderTime,
+    this.reminderRepeatInterval = 0,
     this.enabled = true,
     this.sortOrder = 0,
     DateTime? createdAt,
@@ -58,6 +62,8 @@ class TaskDefinition {
       dailyPointsCap: map['daily_points_cap'] as int?,
       checkinMode: CheckinMode.fromCode(map['checkin_mode'] as String? ?? 'self'),
       penaltyMinutes: map['penalty_minutes'] as int? ?? 0,
+      reminderTime: map['reminder_time'] as String?,
+      reminderRepeatInterval: (map['reminder_repeat_interval'] as int?) ?? 0,
       enabled: (map['enabled'] as int? ?? 1) == 1,
       sortOrder: map['sort_order'] as int? ?? 0,
       createdAt: DateTime.fromMillisecondsSinceEpoch(map['created_at'] as int),
@@ -78,6 +84,8 @@ class TaskDefinition {
       'daily_points_cap': dailyPointsCap,
       'checkin_mode': checkinMode.code,
       'penalty_minutes': penaltyMinutes,
+      if (reminderTime != null) 'reminder_time': reminderTime,
+      'reminder_repeat_interval': reminderRepeatInterval,
       'enabled': enabled ? 1 : 0,
       'sort_order': sortOrder,
       'created_at': createdAt.millisecondsSinceEpoch,
@@ -97,6 +105,8 @@ class TaskDefinition {
     int? dailyPointsCap,
     CheckinMode? checkinMode,
     int? penaltyMinutes,
+    String? reminderTime,
+    int? reminderRepeatInterval,
     bool? enabled,
     int? sortOrder,
     DateTime? createdAt,
@@ -114,6 +124,8 @@ class TaskDefinition {
       dailyPointsCap: dailyPointsCap ?? this.dailyPointsCap,
       checkinMode: checkinMode ?? this.checkinMode,
       penaltyMinutes: penaltyMinutes ?? this.penaltyMinutes,
+      reminderTime: reminderTime ?? this.reminderTime,
+      reminderRepeatInterval: reminderRepeatInterval ?? this.reminderRepeatInterval,
       enabled: enabled ?? this.enabled,
       sortOrder: sortOrder ?? this.sortOrder,
       createdAt: createdAt ?? this.createdAt,

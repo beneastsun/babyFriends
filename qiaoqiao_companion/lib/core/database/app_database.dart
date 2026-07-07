@@ -248,6 +248,8 @@ class AppDatabase {
         daily_points_cap INTEGER,
         checkin_mode TEXT NOT NULL DEFAULT 'self',
         penalty_minutes INTEGER NOT NULL DEFAULT 0,
+        reminder_time TEXT,
+        reminder_repeat_interval INTEGER NOT NULL DEFAULT 0,
         enabled INTEGER NOT NULL DEFAULT 1,
         sort_order INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL,
@@ -717,7 +719,7 @@ class AppDatabase {
     }
 
     if (oldVersion < 7) {
-      // v6 -> v7: 新增蛋仔周进度表
+      // v6 -> v7: 新增蛋仔周进度表 + 任务提醒字段
       print('[AppDatabase] Upgrading from v6 to v7...');
 
       await db.execute('''
@@ -731,6 +733,14 @@ class AppDatabase {
           updated_at INTEGER NOT NULL
         );
       ''');
+
+      // P3: 为 task_definitions 添加提醒字段
+      try {
+        await db.execute('ALTER TABLE ${DatabaseConstants.tableTaskDefinitions} ADD COLUMN reminder_time TEXT;');
+      } catch (_) {}
+      try {
+        await db.execute('ALTER TABLE ${DatabaseConstants.tableTaskDefinitions} ADD COLUMN reminder_repeat_interval INTEGER NOT NULL DEFAULT 0;');
+      } catch (_) {}
 
       print('[AppDatabase] Upgrade to v7 completed');
     }
