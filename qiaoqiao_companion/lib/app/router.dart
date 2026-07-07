@@ -13,6 +13,7 @@ import 'package:qiaoqiao_companion/features/parent_mode/presentation/issue_coupo
 import 'package:qiaoqiao_companion/features/parent_mode/presentation/adjust_points_page.dart';
 import 'package:qiaoqiao_companion/features/parent_mode/presentation/pause_monitor_page.dart';
 import 'package:qiaoqiao_companion/features/parent_mode/presentation/task_management_page.dart';
+import 'package:qiaoqiao_companion/features/parent_mode/presentation/egg_style_page.dart';
 import 'package:qiaoqiao_companion/features/tasks/presentation/task_page.dart';
 import 'package:qiaoqiao_companion/app/shell_page.dart';
 import 'package:qiaoqiao_companion/app/app_initializer.dart';
@@ -122,6 +123,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             name: 'parent_mode_pause',
             builder: (context, state) => const PauseMonitorPage(),
           ),
+          GoRoute(
+            path: 'egg-style',
+            name: 'parentEggStyle',
+            builder: (context, state) => const EggStylePage(),
+          ),
         ],
       ),
     ],
@@ -157,6 +163,7 @@ class AppRoutes {
   static const String pointsHistory = '/points/history';
   static const String appList = '/app-list';
   static const String parentMode = '/parent-mode';
+  static const String parentEggStyle = '/parent-mode/egg-style';
   static const String tasks = '/tasks';
 }
 

@@ -166,6 +166,15 @@ class ParentModePage extends ConsumerWidget {
                     const SizedBox(height: DesignTokens.space8),
                     _buildFunctionCard(
                       context: context,
+                      icon: Icons.emoji_nature_rounded,
+                      title: '蛋仔风格',
+                      subtitle: '选择成长蛋仔的形象风格',
+                      color: AppColors.primary,
+                      onTap: () => context.push('/parent-mode/egg-style'),
+                    ),
+                    const SizedBox(height: DesignTokens.space8),
+                    _buildFunctionCard(
+                      context: context,
                       icon: Icons.schedule_rounded,
                       title: '修改规则',
                       subtitle: '调整使用时间和应用分类',
