@@ -48,6 +48,9 @@ dependencies:
   # 图片选择
   image_picker: ^1.0.7
 
+  # 本地通知
+  flutter_local_notifications: ^17.2.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -64,6 +67,7 @@ flutter:
     - assets/images/
     - assets/images/egg/
     - assets/audio/egg/
+    - assets/audio/reminder.mp3
     - assets/animations/
     - assets/sounds/
 
