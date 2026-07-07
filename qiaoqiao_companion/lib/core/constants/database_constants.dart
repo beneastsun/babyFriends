@@ -160,6 +160,25 @@ enum CheckinMode {
   }
 }
 
+/// 任务分类枚举
+enum TaskCategory {
+  health('health', '健康运动'),
+  study('study', '学习阅读'),
+  chore('chore', '家务劳动'),
+  discipline('discipline', '自律守则');
+
+  const TaskCategory(this.code, this.label);
+  final String code;
+  final String label;
+
+  static TaskCategory fromCode(String code) {
+    return TaskCategory.values.firstWhere(
+      (e) => e.code == code,
+      orElse: () => TaskCategory.health,
+    );
+  }
+}
+
 /// 日限额调整来源
 enum LimitAdjustmentSource {
   coupon('coupon'),
