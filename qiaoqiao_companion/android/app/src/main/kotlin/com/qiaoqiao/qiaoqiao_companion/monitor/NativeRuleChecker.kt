@@ -325,13 +325,19 @@ class NativeRuleChecker(private val repository: NativeRuleRepository) {
         }
 
         val isWeekend = repository.isWeekend()
-        val limitMinutes = if (isWeekend) {
+        val baseLimitMinutes = if (isWeekend) {
             totalTimeRule.weekendLimit ?: return null
         } else {
             totalTimeRule.weekdayLimit ?: return null
         }
 
-        if (limitMinutes <= 0) return null
+        // 应用日限额调整（加时券/任务惩罚）
+        val adjustmentMinutes = repository.getDailyAdjustmentMinutes()
+        val limitMinutes = (baseLimitMinutes + adjustmentMinutes).coerceIn(0, 480)
+
+        if (limitMinutes <= 0) {
+            return CheckResult(true, "昨日有未完成的任务，今日使用时长已被扣减")
+        }
 
         val totalUsageMs = repository.getTodayTotalUsageMs(monitoredPackages)
         val totalUsageMinutes = totalUsageMs / 60_000

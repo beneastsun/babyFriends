@@ -576,6 +576,30 @@ class NativeRuleRepository(private val context: Context) {
     }
 
     /**
+     * 获取今日限额调整（分钟）
+     * 正数=加时券增加，负数=任务惩罚扣减，0=无调整
+     * 从 app_settings 表的 daily_adjustment_minutes key 读取
+     */
+    fun getDailyAdjustmentMinutes(): Int {
+        val database = openDatabase() ?: return 0
+        return try {
+            val cursor = database.query(
+                "app_settings",
+                arrayOf("value"),
+                "key = ?",
+                arrayOf("daily_adjustment_minutes"),
+                null, null, null
+            )
+            cursor.use {
+                if (it.moveToFirst()) it.getString(0).toIntOrNull() ?: 0 else 0
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get daily adjustment minutes", e)
+            0
+        }
+    }
+
+    /**
      * 获取总时间规则
      */
     fun getTotalTimeRule(): TotalTimeRule? {
