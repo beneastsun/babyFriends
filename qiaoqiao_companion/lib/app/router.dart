@@ -12,7 +12,7 @@ import 'package:qiaoqiao_companion/features/parent_mode/presentation/edit_rules_
 import 'package:qiaoqiao_companion/features/parent_mode/presentation/issue_coupon_page.dart';
 import 'package:qiaoqiao_companion/features/parent_mode/presentation/adjust_points_page.dart';
 import 'package:qiaoqiao_companion/features/parent_mode/presentation/pause_monitor_page.dart';
-import 'package:qiaoqiao_companion/features/achievement/presentation/achievement_page.dart';
+import 'package:qiaoqiao_companion/features/tasks/presentation/task_page.dart';
 import 'package:qiaoqiao_companion/app/shell_page.dart';
 import 'package:qiaoqiao_companion/app/app_initializer.dart';
 
@@ -84,11 +84,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         name: 'app_list',
         builder: (context, state) => const AppListPage(),
       ),
-      // 成就页面
+      // 任务页面（从首页 push 进入）
       GoRoute(
-        path: '/achievement',
-        name: 'achievement',
-        builder: (context, state) => const AchievementPage(),
+        path: '/tasks',
+        name: 'tasks',
+        builder: (context, state) => const TaskPage(),
       ),
       // 家长模式路由
       GoRoute(
@@ -151,6 +151,7 @@ class AppRoutes {
   static const String pointsHistory = '/points/history';
   static const String appList = '/app-list';
   static const String parentMode = '/parent-mode';
+  static const String tasks = '/tasks';
 }
 
 /// 简单加载页面

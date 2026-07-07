@@ -11,7 +11,9 @@ import 'package:qiaoqiao_companion/features/home/presentation/widgets/app_usage_
 import 'package:qiaoqiao_companion/features/home/presentation/widgets/daily_timeline_widget.dart';
 import 'package:qiaoqiao_companion/features/report/domain/weekly_report.dart';
 import 'package:qiaoqiao_companion/features/report/domain/weekly_report_service.dart';
-import 'package:qiaoqiao_companion/shared/providers/filtered_app_usage_provider.dart';
+import 'package:qiaoqiao_companion/shared/providers/task_provider.dart';
+import 'package:qiaoqiao_companion/shared/widgets/coupon_exchange_dialog.dart';
+import 'package:qiaoqiao_companion/app/router.dart';
 import 'package:qiaoqiao_companion/shared/widgets/design_system/app_card.dart';
 import 'package:qiaoqiao_companion/shared/providers/theme_provider.dart';
 import 'package:qiaoqiao_companion/shared/widgets/design_system/app_button.dart';
@@ -85,6 +87,10 @@ class _HomePageState extends ConsumerState<HomePage> {
                 ),
                 const SizedBox(height: DesignTokens.space16),
 
+                // 今日任务区域
+                _buildTaskSection(context, ref),
+                const SizedBox(height: DesignTokens.space16),
+
                 // 日/周维度切换器
                 _DimensionSwitcher(
                   currentDimension: dimension,
@@ -113,8 +119,6 @@ class _HomePageState extends ConsumerState<HomePage> {
                       });
                     },
                     onRefresh: () {
-                      // 刷新 app 列表数据
-                      ref.invalidate(filteredAppUsageProvider);
                       // 取消小时选中，显示全天数据
                       setState(() {
                         _selectedHour = null;
@@ -138,6 +142,111 @@ class _HomePageState extends ConsumerState<HomePage> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+  /// 构建任务区域
+  Widget _buildTaskSection(BuildContext context, WidgetRef ref) {
+    final taskState = ref.watch(taskProvider);
+    final theme = Theme.of(context);
+
+    if (taskState.isLoading || taskState.tasks.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Card(
+      margin: const EdgeInsets.all(16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('今日任务', style: theme.textTheme.titleMedium),
+                TextButton(
+                  onPressed: () => context.push(AppRoutes.tasks),
+                  child: const Text('全部任务'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            // 进度栏
+            Row(
+              children: [
+                CircularProgressIndicator(
+                  value: taskState.completionRate,
+                  strokeWidth: 6,
+                ),
+                const SizedBox(width: 12),
+                Text('${taskState.todayCompletedCount}/${taskState.totalTaskCount} 已完成'),
+                const Spacer(),
+                Text('+${taskState.todayPoints} 积分'),
+              ],
+            ),
+            const SizedBox(height: 12),
+            // 任务卡片横向列表
+            SizedBox(
+              height: 80,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: taskState.tasks.length,
+                itemBuilder: (context, index) {
+                  final task = taskState.tasks[index];
+                  final isCompleted = taskState.isTaskCompleted(task);
+                  final checkinCount = taskState.getCheckinCount(task.id!);
+
+                  return Container(
+                    width: 120,
+                    margin: const EdgeInsets.only(right: 8),
+                    child: Card(
+                      child: InkWell(
+                        onTap: isCompleted
+                            ? null
+                            : () => ref.read(taskProvider.notifier).checkin(task),
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(task.emoji, style: const TextStyle(fontSize: 24)),
+                              const SizedBox(height: 4),
+                              Text(
+                                task.name,
+                                style: theme.textTheme.bodySmall,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              Text(
+                                isCompleted
+                                    ? '✓'
+                                    : '$checkinCount/${task.minDailyCount}',
+                                style: TextStyle(
+                                  color: isCompleted
+                                      ? theme.colorScheme.primary
+                                      : theme.colorScheme.outline,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            // 兑换按钮
+            const SizedBox(height: 8),
+            FilledButton.tonalIcon(
+              onPressed: () => CouponExchangeDialog.show(context),
+              icon: const Icon(Icons.card_giftcard),
+              label: const Text('兑换加时券'),
+            ),
+          ],
         ),
       ),
     );
