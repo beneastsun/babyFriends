@@ -4,6 +4,7 @@ import 'package:qiaoqiao_companion/core/platform/platform.dart';
 import 'package:qiaoqiao_companion/shared/providers/providers.dart';
 import 'package:qiaoqiao_companion/core/services/services.dart';
 import 'package:qiaoqiao_companion/features/onboarding/data/onboarding_state.dart';
+import 'package:qiaoqiao_companion/shared/providers/task_provider.dart';
 import 'package:qiaoqiao_companion/features/parent_mode/data/parent_password_repository.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -62,7 +63,6 @@ class AppInitializationNotifier extends StateNotifier<AppInitializationState> {
 
       // 2. 加载状态
       await Future.wait([
-        _ref.read(todayUsageProvider.notifier).loadToday(),
         _ref.read(pointsProvider.notifier).load(),
         _ref.read(rulesProvider.notifier).load(),
         _ref.read(couponsProvider.notifier).load(),
@@ -70,6 +70,14 @@ class AppInitializationNotifier extends StateNotifier<AppInitializationState> {
         _ref.read(monitoredAppsProvider.notifier).load(),
         _ref.read(timePeriodsProvider.notifier).load(),
       ]);
+
+      // 2.1 加载任务数据并生成惩罚
+      final taskNotifier = _ref.read(taskProvider.notifier);
+      await taskNotifier.load();
+      await taskNotifier.generatePenalties();
+
+      // 2.2 加载今日使用数据（包含惩罚调整后的有效限额）
+      await _ref.read(todayUsageProvider.notifier).loadToday();
 
       // 3. 初始化 OverlayService 回调监听（用于禁用app提醒）
       OverlayService.init();
