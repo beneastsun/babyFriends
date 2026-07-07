@@ -2,8 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:qiaoqiao_companion/core/constants/database_constants.dart';
 
 void main() {
-  test('databaseVersion is 6', () {
-    expect(DatabaseConstants.databaseVersion, 6);
+  test('databaseVersion is 7', () {
+    expect(DatabaseConstants.databaseVersion, 7);
   });
 
   test('tableDailyLimitAdjustments constant exists', () {

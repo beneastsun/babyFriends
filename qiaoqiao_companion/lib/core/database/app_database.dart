@@ -331,6 +331,19 @@ class AppDatabase {
     } catch (e) {
       print('[AppDatabase] category column may already exist: $e');
     }
+
+    // v7 P2 新增：蛋仔周进度表
+    await db.execute('''
+      CREATE TABLE ${DatabaseConstants.tableEggWeeklyProgress} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        week_start TEXT NOT NULL UNIQUE,
+        total_task_count INTEGER NOT NULL DEFAULT 0,
+        completed_task_count INTEGER NOT NULL DEFAULT 0,
+        highest_stage INTEGER NOT NULL DEFAULT 0,
+        egg_style TEXT NOT NULL DEFAULT 'princess',
+        updated_at INTEGER NOT NULL
+      );
+    ''');
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -702,6 +715,25 @@ class AppDatabase {
 
       print('[AppDatabase] Upgrade to v6 completed');
     }
+
+    if (oldVersion < 7) {
+      // v6 -> v7: 新增蛋仔周进度表
+      print('[AppDatabase] Upgrading from v6 to v7...');
+
+      await db.execute('''
+        CREATE TABLE ${DatabaseConstants.tableEggWeeklyProgress} (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          week_start TEXT NOT NULL UNIQUE,
+          total_task_count INTEGER NOT NULL DEFAULT 0,
+          completed_task_count INTEGER NOT NULL DEFAULT 0,
+          highest_stage INTEGER NOT NULL DEFAULT 0,
+          egg_style TEXT NOT NULL DEFAULT 'princess',
+          updated_at INTEGER NOT NULL
+        );
+      ''');
+
+      print('[AppDatabase] Upgrade to v7 completed');
+    }
   }
 
   /// 关闭数据库
@@ -729,5 +761,6 @@ class AppDatabase {
     await db.delete(DatabaseConstants.tableTaskCheckins);
     await db.delete(DatabaseConstants.tableTaskPenalties);
     await db.delete(DatabaseConstants.tableDailyLimitAdjustments);
+    await db.delete(DatabaseConstants.tableEggWeeklyProgress);
   }
 }
