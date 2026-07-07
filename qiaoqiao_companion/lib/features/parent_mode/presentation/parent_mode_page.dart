@@ -157,6 +157,15 @@ class ParentModePage extends ConsumerWidget {
                   delegate: SliverChildListDelegate([
                     _buildFunctionCard(
                       context: context,
+                      icon: Icons.task_alt_rounded,
+                      title: '管理任务',
+                      subtitle: '添加、编辑孩子的日常任务',
+                      color: AppColors.primary,
+                      onTap: () => context.push('/parent-mode/tasks'),
+                    ),
+                    const SizedBox(height: DesignTokens.space8),
+                    _buildFunctionCard(
+                      context: context,
                       icon: Icons.schedule_rounded,
                       title: '修改规则',
                       subtitle: '调整使用时间和应用分类',

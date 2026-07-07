@@ -12,6 +12,7 @@ import 'package:qiaoqiao_companion/features/parent_mode/presentation/edit_rules_
 import 'package:qiaoqiao_companion/features/parent_mode/presentation/issue_coupon_page.dart';
 import 'package:qiaoqiao_companion/features/parent_mode/presentation/adjust_points_page.dart';
 import 'package:qiaoqiao_companion/features/parent_mode/presentation/pause_monitor_page.dart';
+import 'package:qiaoqiao_companion/features/parent_mode/presentation/task_management_page.dart';
 import 'package:qiaoqiao_companion/features/tasks/presentation/task_page.dart';
 import 'package:qiaoqiao_companion/app/shell_page.dart';
 import 'package:qiaoqiao_companion/app/app_initializer.dart';
@@ -96,6 +97,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         name: 'parent_mode',
         builder: (context, state) => const ParentModePage(),
         routes: [
+          GoRoute(
+            path: 'tasks',
+            name: 'parent_mode_tasks',
+            builder: (context, state) => const TaskManagementPage(),
+          ),
           GoRoute(
             path: 'rules',
             name: 'parent_mode_rules',
