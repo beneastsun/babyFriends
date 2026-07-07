@@ -15,6 +15,7 @@ class TodayUsage {
   final int totalLimitMinutes;
   final int gameLimitMinutes;
   final int videoLimitMinutes;
+  final int adjustmentMinutes;  // 当日限额调整（正=加时，负=扣减）
   final List<AppUsageRecord> recentRecords;
 
   const TodayUsage({
@@ -25,6 +26,7 @@ class TodayUsage {
     this.totalLimitMinutes = 120,
     this.gameLimitMinutes = 30,
     this.videoLimitMinutes = 30,
+    this.adjustmentMinutes = 0,
     this.recentRecords = const [],
   });
 
@@ -37,18 +39,25 @@ class TodayUsage {
   Duration get gameLimit => Duration(minutes: gameLimitMinutes);
   Duration get videoLimit => Duration(minutes: videoLimitMinutes);
 
-  Duration get totalRemaining => totalLimit - totalDuration;
+  /// 当日有效总限额（分钟），clamp 到 [0, 480]
+  int get effectiveTotalLimitMinutes =>
+      (totalLimitMinutes + adjustmentMinutes).clamp(0, 480);
+
+  /// 当日有效总限额
+  Duration get effectiveTotalLimit => Duration(minutes: effectiveTotalLimitMinutes);
+
+  Duration get totalRemaining => effectiveTotalLimit - totalDuration;
   Duration get gameRemaining => gameLimit - gameDuration;
   Duration get videoRemaining => videoLimit - videoDuration;
 
   double get totalProgress =>
-      (totalDurationSeconds / (totalLimitMinutes * 60)).clamp(0.0, 1.0);
+      (totalDurationSeconds / (effectiveTotalLimitMinutes * 60)).clamp(0.0, 1.0);
   double get gameProgress =>
       (gameDurationSeconds / (gameLimitMinutes * 60)).clamp(0.0, 1.0);
   double get videoProgress =>
       (videoDurationSeconds / (videoLimitMinutes * 60)).clamp(0.0, 1.0);
 
-  bool get isTotalExceeded => totalDuration >= totalLimit;
+  bool get isTotalExceeded => totalDuration >= effectiveTotalLimit;
   bool get isGameExceeded => gameDuration >= gameLimit;
   bool get isVideoExceeded => videoDuration >= videoLimit;
 
@@ -64,6 +73,7 @@ class TodayUsage {
     int? totalLimitMinutes,
     int? gameLimitMinutes,
     int? videoLimitMinutes,
+    int? adjustmentMinutes,
     List<AppUsageRecord>? recentRecords,
   }) {
     return TodayUsage(
@@ -75,6 +85,7 @@ class TodayUsage {
       totalLimitMinutes: totalLimitMinutes ?? this.totalLimitMinutes,
       gameLimitMinutes: gameLimitMinutes ?? this.gameLimitMinutes,
       videoLimitMinutes: videoLimitMinutes ?? this.videoLimitMinutes,
+      adjustmentMinutes: adjustmentMinutes ?? this.adjustmentMinutes,
       recentRecords: recentRecords ?? this.recentRecords,
     );
   }
