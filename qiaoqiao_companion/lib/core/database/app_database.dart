@@ -233,6 +233,104 @@ class AppDatabase {
         updated_at INTEGER NOT NULL
       );
     ''');
+
+    // v6 新增：任务系统表
+    await db.execute('''
+      CREATE TABLE ${DatabaseConstants.tableTaskDefinitions} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        emoji TEXT NOT NULL DEFAULT '⭐',
+        category TEXT NOT NULL,
+        base_points INTEGER NOT NULL DEFAULT 10,
+        extra_points INTEGER NOT NULL DEFAULT 0,
+        min_daily_count INTEGER NOT NULL DEFAULT 1,
+        max_daily_count INTEGER NOT NULL DEFAULT 1,
+        daily_points_cap INTEGER,
+        checkin_mode TEXT NOT NULL DEFAULT 'self',
+        penalty_minutes INTEGER NOT NULL DEFAULT 0,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+    ''');
+
+    await db.execute('''
+      CREATE TABLE ${DatabaseConstants.tableTaskCheckins} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id INTEGER NOT NULL,
+        checkin_date TEXT NOT NULL,
+        checkin_time TEXT NOT NULL,
+        points_earned INTEGER NOT NULL DEFAULT 0,
+        confirmed_by_parent INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY (task_id) REFERENCES ${DatabaseConstants.tableTaskDefinitions}(id)
+      );
+    ''');
+
+    await db.execute('''
+      CREATE UNIQUE INDEX idx_checkins_unique ON ${DatabaseConstants.tableTaskCheckins}(task_id, checkin_date, checkin_time);
+    ''');
+
+    await db.execute('''
+      CREATE TABLE ${DatabaseConstants.tableTaskPenalties} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id INTEGER NOT NULL,
+        penalty_date TEXT NOT NULL,
+        penalty_minutes INTEGER NOT NULL,
+        reason TEXT NOT NULL,
+        applied INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY (task_id) REFERENCES ${DatabaseConstants.tableTaskDefinitions}(id)
+      );
+    ''');
+
+    await db.execute('''
+      CREATE TABLE ${DatabaseConstants.tableDailyLimitAdjustments} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        adjust_date TEXT NOT NULL,
+        adjustment_minutes INTEGER NOT NULL,
+        source TEXT NOT NULL,
+        source_id INTEGER,
+        created_at INTEGER NOT NULL
+      );
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_adjustments_date ON ${DatabaseConstants.tableDailyLimitAdjustments}(adjust_date);
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_task_checkins_task_id ON ${DatabaseConstants.tableTaskCheckins}(task_id);
+    ''');
+    await db.execute('''
+      CREATE INDEX idx_task_checkins_date ON ${DatabaseConstants.tableTaskCheckins}(checkin_date);
+    ''');
+    await db.execute('''
+      CREATE INDEX idx_task_penalties_date ON ${DatabaseConstants.tableTaskPenalties}(penalty_date);
+    ''');
+    await db.execute('''
+      CREATE INDEX idx_task_penalties_applied ON ${DatabaseConstants.tableTaskPenalties}(applied);
+    ''');
+
+    // 修复: user_achievements 表
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS user_achievements (
+        achievement_id TEXT PRIMARY KEY,
+        unlocked_at INTEGER NOT NULL,
+        progress INTEGER NOT NULL DEFAULT 0,
+        is_unlocked INTEGER NOT NULL DEFAULT 0
+      );
+    ''');
+
+    // 修复: points_history 添加 category 列
+    try {
+      await db.execute('''
+        ALTER TABLE ${DatabaseConstants.tablePointsHistory} ADD COLUMN category TEXT NOT NULL DEFAULT 'other';
+      ''');
+    } catch (e) {
+      print('[AppDatabase] category column may already exist: $e');
+    }
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -500,6 +598,110 @@ class AppDatabase {
 
       print('[AppDatabase] Upgrade to v5 completed');
     }
+
+    if (oldVersion < 6) {
+      // v5 -> v6: 新增任务系统表和日限额调整表
+      print('[AppDatabase] Upgrading from v5 to v6...');
+
+      await db.execute('''
+        CREATE TABLE ${DatabaseConstants.tableTaskDefinitions} (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          emoji TEXT NOT NULL DEFAULT '⭐',
+          category TEXT NOT NULL,
+          base_points INTEGER NOT NULL DEFAULT 10,
+          extra_points INTEGER NOT NULL DEFAULT 0,
+          min_daily_count INTEGER NOT NULL DEFAULT 1,
+          max_daily_count INTEGER NOT NULL DEFAULT 1,
+          daily_points_cap INTEGER,
+          checkin_mode TEXT NOT NULL DEFAULT 'self',
+          penalty_minutes INTEGER NOT NULL DEFAULT 0,
+          enabled INTEGER NOT NULL DEFAULT 1,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+      ''');
+
+      await db.execute('''
+        CREATE TABLE ${DatabaseConstants.tableTaskCheckins} (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id INTEGER NOT NULL,
+          checkin_date TEXT NOT NULL,
+          checkin_time TEXT NOT NULL,
+          points_earned INTEGER NOT NULL DEFAULT 0,
+          confirmed_by_parent INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          FOREIGN KEY (task_id) REFERENCES ${DatabaseConstants.tableTaskDefinitions}(id)
+        );
+      ''');
+
+      await db.execute('''
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_checkins_unique ON ${DatabaseConstants.tableTaskCheckins}(task_id, checkin_date, checkin_time);
+      ''');
+
+      await db.execute('''
+        CREATE TABLE ${DatabaseConstants.tableTaskPenalties} (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id INTEGER NOT NULL,
+          penalty_date TEXT NOT NULL,
+          penalty_minutes INTEGER NOT NULL,
+          reason TEXT NOT NULL,
+          applied INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          FOREIGN KEY (task_id) REFERENCES ${DatabaseConstants.tableTaskDefinitions}(id)
+        );
+      ''');
+
+      await db.execute('''
+        CREATE TABLE ${DatabaseConstants.tableDailyLimitAdjustments} (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          adjust_date TEXT NOT NULL,
+          adjustment_minutes INTEGER NOT NULL,
+          source TEXT NOT NULL,
+          source_id INTEGER,
+          created_at INTEGER NOT NULL
+        );
+      ''');
+
+      await db.execute('''
+        CREATE INDEX idx_adjustments_date ON ${DatabaseConstants.tableDailyLimitAdjustments}(adjust_date);
+      ''');
+
+      await db.execute('''
+        CREATE INDEX idx_task_checkins_task_id ON ${DatabaseConstants.tableTaskCheckins}(task_id);
+      ''');
+      await db.execute('''
+        CREATE INDEX idx_task_checkins_date ON ${DatabaseConstants.tableTaskCheckins}(checkin_date);
+      ''');
+      await db.execute('''
+        CREATE INDEX idx_task_penalties_date ON ${DatabaseConstants.tableTaskPenalties}(penalty_date);
+      ''');
+      await db.execute('''
+        CREATE INDEX idx_task_penalties_applied ON ${DatabaseConstants.tableTaskPenalties}(applied);
+      ''');
+
+      // 修复: user_achievements 表
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS user_achievements (
+          achievement_id TEXT PRIMARY KEY,
+          unlocked_at INTEGER NOT NULL,
+          progress INTEGER NOT NULL DEFAULT 0,
+          is_unlocked INTEGER NOT NULL DEFAULT 0
+        );
+      ''');
+
+      // 修复: points_history 添加 category 列
+      try {
+        await db.execute('''
+          ALTER TABLE ${DatabaseConstants.tablePointsHistory} ADD COLUMN category TEXT NOT NULL DEFAULT 'other';
+        ''');
+      } catch (e) {
+        print('[AppDatabase] category column may already exist: $e');
+      }
+
+      print('[AppDatabase] Upgrade to v6 completed');
+    }
   }
 
   /// 关闭数据库
@@ -523,5 +725,9 @@ class AppDatabase {
     await db.delete(DatabaseConstants.tableTimePeriods);
     await db.delete(DatabaseConstants.tableContinuousSessions);
     await db.delete(DatabaseConstants.tableAppSettings);
+    await db.delete(DatabaseConstants.tableTaskDefinitions);
+    await db.delete(DatabaseConstants.tableTaskCheckins);
+    await db.delete(DatabaseConstants.tableTaskPenalties);
+    await db.delete(DatabaseConstants.tableDailyLimitAdjustments);
   }
 }
