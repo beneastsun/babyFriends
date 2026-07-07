@@ -55,12 +55,15 @@ dev_dependencies:
   riverpod_generator: ^2.6.5
   build_runner: ^2.4.15
   flutter_launcher_icons: ^0.14.3
+  sqflite_common_ffi: ^2.4.0+3
 
 flutter:
   uses-material-design: true
 
   assets:
     - assets/images/
+    - assets/images/egg/
+    - assets/audio/egg/
     - assets/animations/
     - assets/sounds/
 
