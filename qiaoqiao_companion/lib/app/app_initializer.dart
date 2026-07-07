@@ -5,6 +5,7 @@ import 'package:qiaoqiao_companion/shared/providers/providers.dart';
 import 'package:qiaoqiao_companion/core/services/services.dart';
 import 'package:qiaoqiao_companion/features/onboarding/data/onboarding_state.dart';
 import 'package:qiaoqiao_companion/shared/providers/task_provider.dart';
+import 'package:qiaoqiao_companion/shared/providers/egg_provider.dart';
 import 'package:qiaoqiao_companion/features/parent_mode/data/parent_password_repository.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -78,6 +79,9 @@ class AppInitializationNotifier extends StateNotifier<AppInitializationState> {
 
       // 2.2 加载今日使用数据（包含惩罚调整后的有效限额）
       await _ref.read(todayUsageProvider.notifier).loadToday();
+
+      // 2.3 刷新蛋仔周进度
+      await _ref.read(eggProvider.notifier).refreshWeeklyProgress();
 
       // 3. 初始化 OverlayService 回调监听（用于禁用app提醒）
       OverlayService.init();

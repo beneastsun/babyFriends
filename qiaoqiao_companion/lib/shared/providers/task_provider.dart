@@ -22,7 +22,22 @@ class TaskState {
   int get todayCompletedCount =>
       tasks.where((t) => isTaskCompleted(t)).length;
   int get totalTaskCount => tasks.length;
-  int get todayPoints => 0; // TODO: calculate from checkins
+  int get todayPoints {
+    int total = 0;
+    for (final entry in checkinCounts.entries) {
+      TaskDefinition? task;
+      for (final t in tasks) {
+        if (t.id == entry.key) {
+          task = t;
+          break;
+        }
+      }
+      if (task != null) {
+        total += task.basePoints * entry.value;
+      }
+    }
+    return total;
+  }
   double get completionRate =>
       totalTaskCount > 0 ? todayCompletedCount / totalTaskCount : 0.0;
 

@@ -12,6 +12,9 @@ import 'package:qiaoqiao_companion/features/home/presentation/widgets/daily_time
 import 'package:qiaoqiao_companion/features/report/domain/weekly_report.dart';
 import 'package:qiaoqiao_companion/features/report/domain/weekly_report_service.dart';
 import 'package:qiaoqiao_companion/shared/providers/task_provider.dart';
+import 'package:qiaoqiao_companion/shared/providers/egg_provider.dart';
+import 'package:qiaoqiao_companion/shared/widgets/egg_character.dart';
+import 'package:qiaoqiao_companion/shared/widgets/egg_upgrade_overlay.dart';
 import 'package:qiaoqiao_companion/shared/widgets/coupon_exchange_dialog.dart';
 import 'package:qiaoqiao_companion/app/router.dart';
 import 'package:qiaoqiao_companion/shared/widgets/design_system/app_card.dart';
@@ -149,6 +152,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   /// 构建任务区域
   Widget _buildTaskSection(BuildContext context, WidgetRef ref) {
     final taskState = ref.watch(taskProvider);
+    final eggState = ref.watch(eggProvider);
     final theme = Theme.of(context);
 
     if (taskState.isLoading || taskState.tasks.isEmpty) {
@@ -176,6 +180,12 @@ class _HomePageState extends ConsumerState<HomePage> {
             // 进度栏
             Row(
               children: [
+                EggCharacter(
+                  style: eggState.eggStyle,
+                  stage: eggState.stage,
+                  size: 60,
+                ),
+                const SizedBox(width: 12),
                 CircularProgressIndicator(
                   value: taskState.completionRate,
                   strokeWidth: 6,
@@ -205,7 +215,16 @@ class _HomePageState extends ConsumerState<HomePage> {
                       child: InkWell(
                         onTap: isCompleted
                             ? null
-                            : () => ref.read(taskProvider.notifier).checkin(task),
+                            : () async {
+                                final oldStage = ref.read(eggProvider).stage;
+                                await ref.read(taskProvider.notifier).checkin(task);
+                                await ref.read(eggProvider.notifier).refreshWeeklyProgress();
+                                final newStage = ref.read(eggProvider).stage;
+                                if (newStage > oldStage && context.mounted) {
+                                  final eggState = ref.read(eggProvider);
+                                  EggUpgradeOverlay.show(context, style: eggState.eggStyle, newStage: newStage);
+                                }
+                              },
                         child: Padding(
                           padding: const EdgeInsets.all(8),
                           child: Column(

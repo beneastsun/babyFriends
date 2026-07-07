@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qiaoqiao_companion/core/constants/database_constants.dart';
 import 'package:qiaoqiao_companion/shared/models/task_definition.dart';
 import 'package:qiaoqiao_companion/shared/providers/task_provider.dart';
+import 'package:qiaoqiao_companion/shared/providers/egg_provider.dart';
+import 'package:qiaoqiao_companion/shared/widgets/egg_character.dart';
+import 'package:qiaoqiao_companion/shared/widgets/egg_upgrade_overlay.dart';
 import 'package:qiaoqiao_companion/shared/widgets/coupon_exchange_dialog.dart';
 
 class TaskPage extends ConsumerWidget {
@@ -73,6 +76,18 @@ class TaskPage extends ConsumerWidget {
 
     return Column(
       children: [
+        // 蛋仔形象区域
+        Consumer(builder: (context, ref, _) {
+          final eggState = ref.watch(eggProvider);
+          return Center(
+            child: EggCharacter(
+              style: eggState.eggStyle,
+              stage: eggState.stage,
+              size: 100,
+            ),
+          );
+        }),
+        const SizedBox(height: 8),
         ...banners,
         Expanded(
           child: ListView(
@@ -109,7 +124,14 @@ class TaskPage extends ConsumerWidget {
       // 简化处理：直接调用 checkin
       // 实际应用中需要家长密码确认
     }
+    final oldStage = ref.read(eggProvider).stage;
     await ref.read(taskProvider.notifier).checkin(task);
+    await ref.read(eggProvider.notifier).refreshWeeklyProgress();
+    final newStage = ref.read(eggProvider).stage;
+    if (newStage > oldStage && context.mounted) {
+      final eggState = ref.read(eggProvider);
+      EggUpgradeOverlay.show(context, style: eggState.eggStyle, newStage: newStage);
+    }
   }
 }
 
