@@ -23,4 +23,16 @@ void main() {
       isEmpty,
     );
   });
+
+  test('tableEggWeeklyProgress constant exists', () {
+    expect(DatabaseConstants.tableEggWeeklyProgress, 'egg_weekly_progress');
+  });
+
+  test('EggStyle enum has princess, sporty, fairy, school', () {
+    expect(EggStyle.values.length, 4);
+    expect(EggStyle.princess.code, 'princess');
+    expect(EggStyle.sporty.code, 'sporty');
+    expect(EggStyle.fairy.code, 'fairy');
+    expect(EggStyle.school.code, 'school');
+  });
 }

@@ -27,6 +27,9 @@ class DatabaseConstants {
   static const String tableTaskCheckins = 'task_checkins';
   static const String tableTaskPenalties = 'task_penalties';
   static const String tableDailyLimitAdjustments = 'daily_limit_adjustments';
+
+  // v7 P2 新增表
+  static const String tableEggWeeklyProgress = 'egg_weekly_progress';
 }
 
 /// 应用分类枚举
@@ -192,6 +195,24 @@ enum LimitAdjustmentSource {
     return LimitAdjustmentSource.values.firstWhere(
       (e) => e.code == code,
       orElse: () => LimitAdjustmentSource.parentGrant,
+    );
+  }
+}
+
+/// 蛋仔形象风格
+enum EggStyle {
+  princess('princess'),
+  sporty('sporty'),
+  fairy('fairy'),
+  school('school');
+
+  const EggStyle(this.code);
+  final String code;
+
+  static EggStyle fromCode(String code) {
+    return EggStyle.values.firstWhere(
+      (e) => e.code == code,
+      orElse: () => EggStyle.princess,
     );
   }
 }
