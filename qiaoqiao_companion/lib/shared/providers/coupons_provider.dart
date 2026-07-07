@@ -37,10 +37,14 @@ class CouponsState {
 /// 加时券状态 Notifier
 class CouponsNotifier extends StateNotifier<CouponsState> {
   final CouponDao _couponDao;
+  final DailyLimitAdjustmentDao _limitAdjustmentDao;
   final Ref _ref;
 
-  CouponsNotifier(this._couponDao, this._ref)
-      : super(const CouponsState());
+  CouponsNotifier(
+    this._couponDao,
+    this._limitAdjustmentDao,
+    this._ref,
+  ) : super(const CouponsState());
 
   /// 加载加时券数据
   Future<void> load() async {
@@ -73,6 +77,7 @@ class CouponsNotifier extends StateNotifier<CouponsState> {
     final deducted = await pointsNotifier.deductPoints(
       cost,
       '兑换${type.durationMinutes}分钟加时券',
+      category: PointsCategory.couponExchange,
     );
 
     if (!deducted) return false;
@@ -89,9 +94,26 @@ class CouponsNotifier extends StateNotifier<CouponsState> {
   Future<bool> use(int couponId) async {
     final success = await _couponDao.use(couponId);
     if (success) {
+      // 读取券信息获取时长
+      final coupon = await _couponDao.getById(couponId);
+      if (coupon != null) {
+        // 写入日限额调整记录
+        final today = _formatDate(DateTime.now());
+        final adjustment = DailyLimitAdjustment(
+          adjustDate: today,
+          adjustmentMinutes: coupon.durationMinutes,
+          source: LimitAdjustmentSource.coupon,
+          sourceId: couponId,
+        );
+        await _limitAdjustmentDao.insert(adjustment);
+      }
       await load();
     }
     return success;
+  }
+
+  String _formatDate(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
   }
 
   /// 家长发放加时券
@@ -111,5 +133,9 @@ class CouponsNotifier extends StateNotifier<CouponsState> {
 final couponsProvider =
     StateNotifierProvider<CouponsNotifier, CouponsState>((ref) {
   final db = AppDatabase.instance;
-  return CouponsNotifier(CouponDao(db), ref);
+  return CouponsNotifier(
+    CouponDao(db),
+    DailyLimitAdjustmentDao(db),
+    ref,
+  );
 });
