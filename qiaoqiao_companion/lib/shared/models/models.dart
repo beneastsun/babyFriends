@@ -14,3 +14,6 @@ export 'app_usage_filter.dart';
 export 'monitored_app.dart';
 export 'time_period.dart';
 export 'continuous_session.dart';
+
+// v6 新增：日限额调整模型
+export 'daily_limit_adjustment.dart';
