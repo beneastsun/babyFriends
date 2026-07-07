@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:sqflite/sqflite.dart';
 import 'package:qiaoqiao_companion/core/database/app_database.dart';
 import 'package:qiaoqiao_companion/core/database/database_service.dart';
 import 'package:qiaoqiao_companion/core/database/daos/daos.dart';
@@ -96,10 +97,15 @@ class TodayUsageNotifier extends StateNotifier<TodayUsage> {
   final DailyStatsDao _dailyStatsDao;
   final AppUsageDao _appUsageDao;
   final RuleDao _ruleDao;
+  final DailyLimitAdjustmentDao _limitAdjustmentDao;
   Timer? _refreshTimer;
 
-  TodayUsageNotifier(this._dailyStatsDao, this._appUsageDao, this._ruleDao)
-      : super(const TodayUsage());
+  TodayUsageNotifier(
+    this._dailyStatsDao,
+    this._appUsageDao,
+    this._ruleDao,
+    this._limitAdjustmentDao,
+  ) : super(const TodayUsage());
 
   /// 开始定时刷新（每30秒）
   void startAutoRefresh() {
@@ -186,6 +192,12 @@ class TodayUsageNotifier extends StateNotifier<TodayUsage> {
         .where((r) => restrictedPackages.contains(r.packageName))
         .toList();
 
+    // 读取当日限额调整
+    final adjustments = await _limitAdjustmentDao.getByDate(today);
+    final totalAdjustment = adjustments.fold<int>(
+      0, (sum, a) => sum + a.adjustmentMinutes,
+    );
+
     state = state.copyWith(
       totalDurationSeconds: totalDuration,
       gameDurationSeconds: gameDuration,
@@ -195,7 +207,11 @@ class TodayUsageNotifier extends StateNotifier<TodayUsage> {
       gameLimitMinutes: gameRule.getLimitForDate(DateTime.now()) ?? 30,
       videoLimitMinutes: videoRule.getLimitForDate(DateTime.now()) ?? 30,
       recentRecords: filteredRecords,
+      adjustmentMinutes: totalAdjustment,
     );
+
+    // 同步到 app_settings 供原生侧读取
+    await _syncAdjustmentToAppSettings(today, totalAdjustment);
   }
 
   /// 更新使用时间
@@ -221,6 +237,25 @@ class TodayUsageNotifier extends StateNotifier<TodayUsage> {
   Future<void> refresh() async {
     await loadToday();
   }
+
+  /// 将当日限额调整同步到 app_settings 表（供原生侧读取）
+  Future<void> _syncAdjustmentToAppSettings(String date, int totalMinutes) async {
+    try {
+      final database = await AppDatabase.instance.database;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      await database.insert(
+        DatabaseConstants.tableAppSettings,
+        {
+          'key': 'daily_adjustment_minutes',
+          'value': totalMinutes.toString(),
+          'updated_at': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    } catch (e) {
+      print('[TodayUsageNotifier] Failed to sync adjustment to app_settings: $e');
+    }
+  }
 }
 
 /// 数据库服务 Provider
@@ -236,6 +271,7 @@ final todayUsageProvider =
     DailyStatsDao(db),
     AppUsageDao(db),
     RuleDao(db),
+    DailyLimitAdjustmentDao(db),
   );
   // Start auto-refresh and initial load
   notifier.startAutoRefresh();
