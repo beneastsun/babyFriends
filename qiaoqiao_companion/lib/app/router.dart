@@ -15,8 +15,10 @@ import 'package:qiaoqiao_companion/features/parent_mode/presentation/pause_monit
 import 'package:qiaoqiao_companion/features/parent_mode/presentation/task_management_page.dart';
 import 'package:qiaoqiao_companion/features/parent_mode/presentation/egg_style_page.dart';
 import 'package:qiaoqiao_companion/features/tasks/presentation/task_page.dart';
+import 'package:qiaoqiao_companion/features/tasks/presentation/task_history_page.dart';
 import 'package:qiaoqiao_companion/app/shell_page.dart';
 import 'package:qiaoqiao_companion/app/app_initializer.dart';
+import 'package:qiaoqiao_companion/main.dart';
 
 /// 路由配置 Provider
 final appRouterProvider = Provider<GoRouter>((ref) {
@@ -34,6 +36,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 
   return GoRouter(
     initialLocation: initialLocation,
+    navigatorKey: appNavigatorKey,
     routes: [
       // 加载页面
       GoRoute(
@@ -91,6 +94,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/tasks',
         name: 'tasks',
         builder: (context, state) => const TaskPage(),
+        routes: [
+          GoRoute(
+            path: 'history',
+            name: 'tasks_history',
+            builder: (context, state) => const TaskHistoryPage(),
+          ),
+        ],
       ),
       // 家长模式路由
       GoRoute(

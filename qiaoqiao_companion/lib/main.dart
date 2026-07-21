@@ -3,10 +3,24 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qiaoqiao_companion/core/theme/app_theme.dart';
 import 'package:qiaoqiao_companion/app/router.dart';
 import 'package:qiaoqiao_companion/app/app_initializer.dart';
+import 'package:qiaoqiao_companion/shared/providers/providers.dart';
 import 'package:qiaoqiao_companion/shared/providers/theme_provider.dart';
+import 'package:qiaoqiao_companion/core/services/notification_service.dart';
+import 'package:timezone/data/latest.dart' as tz_data;
+import 'package:timezone/timezone.dart' as tz;
 
-void main() {
+/// 全局 NavigatorState key，供路由与其他需要 BuildContext 的地方使用
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
+
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 初始化时区数据（供 flutter_local_notifications 的 zonedSchedule 使用）
+  tz_data.initializeTimeZones();
+  tz.setLocalLocation(tz.getLocation('Asia/Shanghai'));
+
+  // 初始化本地通知服务
+  await NotificationService().init();
 
   runApp(
     const ProviderScope(
@@ -23,14 +37,34 @@ class QiaoqiaoApp extends ConsumerStatefulWidget {
   ConsumerState<QiaoqiaoApp> createState() => _QiaoqiaoAppState();
 }
 
-class _QiaoqiaoAppState extends ConsumerState<QiaoqiaoApp> {
+class _QiaoqiaoAppState extends ConsumerState<QiaoqiaoApp> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    // 监听应用生命周期（resume 时刷新积分与今日用量，因原生兑换 overlay 可能已直接写 DB）
+    WidgetsBinding.instance.addObserver(this);
     // 启动初始化
     Future.microtask(() {
       ref.read(appInitializationProvider.notifier).initialize();
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // 应用回到前台时刷新积分与今日用量
+    // 原因：原生兑换 overlay 直接读写 DB（不经过 Flutter），用户从受监控 app 切回时
+    // Flutter 内存中的 provider 状态已过期，需重新读取 DB
+    if (state == AppLifecycleState.resumed) {
+      ref.read(pointsProvider.notifier).load();
+      ref.read(todayUsageProvider.notifier).loadToday();
+    }
   }
 
   @override

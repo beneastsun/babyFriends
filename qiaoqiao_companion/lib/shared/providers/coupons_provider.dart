@@ -4,6 +4,7 @@ import 'package:qiaoqiao_companion/core/database/daos/daos.dart';
 import 'package:qiaoqiao_companion/core/constants/database_constants.dart';
 import 'package:qiaoqiao_companion/shared/models/models.dart';
 import 'package:qiaoqiao_companion/shared/providers/points_provider.dart';
+import 'package:qiaoqiao_companion/shared/providers/today_usage_provider.dart';
 
 /// 加时券状态
 class CouponsState {
@@ -63,9 +64,11 @@ class CouponsNotifier extends StateNotifier<CouponsState> {
     );
   }
 
-  /// 兑换加时券
-  Future<bool> exchange(CouponType type) async {
-    final cost = type.cost;
+  /// 兑换加时券（10 积分 = 1 分钟）
+  Future<bool> exchange(int minutes) async {
+    if (minutes <= 0) return false;
+
+    final cost = minutes * PointsConstants.exchangePointsPerMinute;
     final pointsNotifier = _ref.read(pointsProvider.notifier);
     final currentBalance = pointsNotifier.state.balance;
 
@@ -76,14 +79,14 @@ class CouponsNotifier extends StateNotifier<CouponsState> {
     // 扣除积分
     final deducted = await pointsNotifier.deductPoints(
       cost,
-      '兑换${type.durationMinutes}分钟加时券',
+      '兑换$minutes分钟加时券',
       category: PointsCategory.couponExchange,
     );
 
     if (!deducted) return false;
 
     // 创建加时券
-    final coupon = CouponFactory.createEarned(type);
+    final coupon = CouponFactory.createEarned(minutes);
     await _couponDao.insert(coupon);
 
     await load();
@@ -121,6 +124,45 @@ class CouponsNotifier extends StateNotifier<CouponsState> {
     final coupon = CouponFactory.createParentGiven(durationMinutes);
     await _couponDao.insert(coupon);
     await load();
+  }
+
+  /// 倒计时期间兑换并立即加时（不创建券，直接扣积分+写调整记录）
+  /// 每日最多兑换一次，最多 10 分钟。返回兑换的分钟数（失败返回 0）
+  Future<int> exchangeAndUseForCountdown(int minutes) async {
+    if (minutes <= 0 || minutes > 10) return 0;
+
+    final today = _formatDate(DateTime.now());
+
+    // 检查今日是否已通过倒计时兑换过
+    final alreadyExchanged = await _limitAdjustmentDao.existsByDateAndSource(
+      today,
+      LimitAdjustmentSource.countdownExchange,
+    );
+    if (alreadyExchanged) return 0;
+
+    final cost = minutes * PointsConstants.exchangePointsPerMinute;
+    final pointsNotifier = _ref.read(pointsProvider.notifier);
+    if (pointsNotifier.state.balance < cost) return 0;
+
+    final deducted = await pointsNotifier.deductPoints(
+      cost,
+      '倒计时兑换$minutes分钟',
+      category: PointsCategory.couponExchange,
+    );
+    if (!deducted) return 0;
+
+    // 直接写调整记录（不走 coupon 创建流程，避免重复加时）
+    final adjustment = DailyLimitAdjustment(
+      adjustDate: today,
+      adjustmentMinutes: minutes,
+      source: LimitAdjustmentSource.countdownExchange,
+    );
+    await _limitAdjustmentDao.insert(adjustment);
+
+    // 立即刷新同步到 app_settings
+    await _ref.read(todayUsageProvider.notifier).refresh();
+
+    return minutes;
   }
 
   /// 刷新数据

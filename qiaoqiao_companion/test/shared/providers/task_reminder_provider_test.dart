@@ -5,6 +5,8 @@ import 'package:qiaoqiao_companion/core/database/daos/daos.dart';
 import 'package:qiaoqiao_companion/shared/providers/task_reminder_provider.dart';
 import 'package:qiaoqiao_companion/shared/models/task_definition.dart';
 import 'package:qiaoqiao_companion/core/constants/database_constants.dart';
+import 'package:timezone/data/latest.dart' as tz_data;
+import 'package:timezone/timezone.dart' as tz;
 
 late AppDatabase _db;
 late TaskReminderNotifier _notifier;
@@ -13,6 +15,9 @@ void main() {
   setUpAll(() async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+    // 初始化 timezone（NotificationService.scheduleTaskReminder 需要）
+    tz_data.initializeTimeZones();
+    tz.setLocalLocation(tz.getLocation('Asia/Shanghai'));
     _db = AppDatabase.instance;
     await _db.database;
     _notifier = TaskReminderNotifier(

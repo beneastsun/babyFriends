@@ -192,8 +192,12 @@ class TodayUsageNotifier extends StateNotifier<TodayUsage> {
         .where((r) => restrictedPackages.contains(r.packageName))
         .toList();
 
-    // 读取当日限额调整
-    final adjustments = await _limitAdjustmentDao.getByDate(today);
+    // 读取当日限额调整（排除 countdown_exchange：倒计时积分兑换加时
+    // 只应延长当前倒计时，不应抬高每日总限额，否则会导致"双重加时"）
+    final adjustments = await _limitAdjustmentDao.getByDateExcludingSource(
+      today,
+      LimitAdjustmentSource.countdownExchange,
+    );
     final totalAdjustment = adjustments.fold<int>(
       0, (sum, a) => sum + a.adjustmentMinutes,
     );

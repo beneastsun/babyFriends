@@ -22,6 +22,9 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import com.qiaoqiao.qiaoqiao_companion.monitor.NativeContinuousUsageTracker
+import com.qiaoqiao.qiaoqiao_companion.monitor.NativeOverlayManager
+import com.qiaoqiao.qiaoqiao_companion.monitor.WidgetManager
 
 /**
  * 悬浮窗通道
@@ -100,6 +103,11 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
     private var lockFallbackDurationSeconds: Int = 0
     private var lockFallbackPackageName: String? = null
 
+    // 由 MonitorForegroundService 注入：用于处理 Flutter 触发的 extendCountdown / couponExchangeFinished
+    var widgetManager: WidgetManager? = null
+    var continuousUsageTracker: NativeContinuousUsageTracker? = null
+    var overlayManager: NativeOverlayManager? = null
+
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "hasPermission" -> {
@@ -147,6 +155,19 @@ class OverlayChannel(private val context: Context, private val channel: MethodCh
 
             "isCountdownWidgetShowing" -> {
                 result.success(isCountdownWidgetShowing)
+            }
+
+            "extendCountdown" -> {
+                val seconds = (call.argument<Int>("seconds") ?: 0).toLong()
+                widgetManager?.extendCountdown(seconds)
+                continuousUsageTracker?.extendCountdown(seconds)
+                // hideCouponEntry 已废弃（coupon_entry 图标移除，单击 widget 直接弹原生兑换 overlay）
+                result.success(null)
+            }
+
+            "couponExchangeFinished" -> {
+                overlayManager?.isCouponExchangeActive = false
+                result.success(null)
             }
 
             else -> {

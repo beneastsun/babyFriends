@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:qiaoqiao_companion/core/database/app_database.dart';
 import 'package:qiaoqiao_companion/core/database/database_service.dart';
 import 'package:qiaoqiao_companion/core/platform/platform.dart';
 import 'package:qiaoqiao_companion/shared/providers/providers.dart';
@@ -6,6 +7,7 @@ import 'package:qiaoqiao_companion/core/services/services.dart';
 import 'package:qiaoqiao_companion/features/onboarding/data/onboarding_state.dart';
 import 'package:qiaoqiao_companion/shared/providers/task_provider.dart';
 import 'package:qiaoqiao_companion/shared/providers/egg_provider.dart';
+import 'package:qiaoqiao_companion/shared/providers/task_reminder_provider.dart';
 import 'package:qiaoqiao_companion/features/parent_mode/data/parent_password_repository.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -75,6 +77,7 @@ class AppInitializationNotifier extends StateNotifier<AppInitializationState> {
       // 2.1 加载任务数据并生成惩罚
       final taskNotifier = _ref.read(taskProvider.notifier);
       await taskNotifier.load();
+
       await taskNotifier.generatePenalties();
 
       // 2.2 加载今日使用数据（包含惩罚调整后的有效限额）
@@ -82,6 +85,9 @@ class AppInitializationNotifier extends StateNotifier<AppInitializationState> {
 
       // 2.3 刷新蛋仔周进度
       await _ref.read(eggProvider.notifier).refreshWeeklyProgress();
+
+      // 2.4 注册当日任务提醒
+      await _ref.read(taskReminderProvider.notifier).registerDailyReminders();
 
       // 3. 初始化 OverlayService 回调监听（用于禁用app提醒）
       OverlayService.init();
@@ -130,9 +136,34 @@ class AppInitializationNotifier extends StateNotifier<AppInitializationState> {
           // 标记已提示
           await prefs.setBool('miui_setup_shown', true);
         }
+      } else if (isOnboardingCompleted) {
+        // onboarding 已完成但权限缺失（可能是重装/系统重置/用户误关），
+        // 主动跳转设置页引导授权，避免监控功能静默失效
+        // （widget/lock overlay 依赖悬浮窗权限，session 跟踪依赖使用统计权限）
+        await _guideToRequestPermissions(hasUsageStats, hasOverlay);
       }
     } catch (e) {
       state = AppInitializationState(error: e.toString());
+    }
+  }
+
+  /// 引导用户授予缺失的权限
+  ///
+  /// 在 onboarding 已完成但权限丢失（重装/系统重置/误关）时调用。
+  /// 优先请求悬浮窗权限（widget/lock overlay 依赖它），一次只跳一个设置页，
+  /// 用户授权返回后 lifecycle 会触发 [checkPermissions] 再检测；
+  /// 若使用统计仍缺失，会由 UI 层提示或下次启动时再次引导。
+  Future<void> _guideToRequestPermissions(bool hasUsageStats, bool hasOverlay) async {
+    if (!hasOverlay) {
+      try {
+        await OverlayService.requestPermission();
+        return;
+      } catch (_) {}
+    }
+    if (!hasUsageStats) {
+      try {
+        await UsageStatsService.requestPermission();
+      } catch (_) {}
     }
   }
 

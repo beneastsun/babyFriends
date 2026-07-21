@@ -169,21 +169,40 @@ class NativeContinuousUsageTracker(
 
     /**
      * 获取或创建今日活跃会话
+     *
+     * 跨日期处理：如果内存缓存的 session 是昨天的，停用旧 session 并创建今日新 session。
+     * 这确保 DB 查询 `session_date = today` 总能命中，且计时从 0 重新开始。
      */
     private fun getOrCreateSession(now: Long): ContinuousSession? {
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+
+        // 检查内存缓存的 session 是否过期（跨日期）
         if (activeSession != null && activeSession!!.isActive) {
-            return activeSession
+            if (activeSession!!.sessionDate == today) {
+                return activeSession
+            }
+            // 跨日期：停用旧 session，重置 tracker 状态，下一轮创建新 session
+            Log.w(TAG, "Session date crossed: ${activeSession!!.sessionDate} → $today, deactivating old session")
+            repository.deactivateContinuousSession(activeSession!!.id ?: run {
+                activeSession = null
+                currentTrackedApp = null
+                lastPollTime = 0L
+                return null
+            })
+            activeSession = null
+            currentTrackedApp = null
+            lastPollTime = 0L
+            // 继续走下面的 DB 查询 + 创建逻辑
         }
 
-        // 从 DB 加载
+        // 从 DB 加载今日活跃 session
         var session = repository.getActiveContinuousSession()
         if (session != null) {
             activeSession = session
             return session
         }
 
-        // 创建新会话
-        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        // 创建今日新会话
         session = ContinuousSession(
             sessionDate = today,
             startTime = now,
@@ -262,6 +281,25 @@ class NativeContinuousUsageTracker(
         repository.updateContinuousSession(updated)
         activeSession = updated
         Log.d(TAG, "Persisted countdown: startedAt=$now, total=${remainingSeconds}s")
+    }
+
+    /**
+     * 延长当前倒计时（积分兑换加时后调用）
+     * 更新 continuous_usage_sessions.countdown_total_seconds 并持久化
+     */
+    fun extendCountdown(extraSeconds: Long) {
+        val session = activeSession ?: repository.getActiveContinuousSession() ?: return
+        val now = System.currentTimeMillis()
+        val currentTotal = session.countdownTotalSeconds ?: 0L
+        val newTotal = currentTotal + extraSeconds
+        val updated = session.copy(
+            countdownTotalSeconds = newTotal,
+            updatedAt = now
+            // 不重置 countdownStartedAt，保持剩余时间 = (total + extra) - elapsed = currentRemaining + extra
+        )
+        repository.updateContinuousSession(updated)
+        activeSession = updated
+        Log.d(TAG, "Countdown extended: +${extraSeconds}s, newTotal=${newTotal}s")
     }
 
     /**

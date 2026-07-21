@@ -107,7 +107,7 @@ class EnforcementEngine(
             // If user is actively entering password in the password dialog,
             // soft keyboard may cause foregroundApp detection to return null/wrong app.
             // Skip leave detection to prevent widget/overlay flicker.
-            if (overlayManager.isPasswordInputActive || NativeOverlayManager.passwordInputActivityActive) {
+            if (overlayManager.isPasswordInputActive || NativeOverlayManager.passwordInputActivityActive || overlayManager.isCouponExchangeActive) {
                 Log.d(TAG, "onPoll: password input active, skipping leave detection")
                 return
             }
@@ -141,7 +141,15 @@ class EnforcementEngine(
 
         // 3. Continuous usage tracking
         usageTracker.updateTracking(foregroundApp, now)
-        val session = repository.getActiveContinuousSession()
+        // 优先从 DB 读取今日活跃 session；若 DB 返回 null（跨日期时 DB 查不到昨天的 session），
+        // 回退到 tracker 的内存缓存（tracker 仍在更新昨天的 session，直到被 reset）。
+        var session = repository.getActiveContinuousSession()
+        if (session == null) {
+            session = usageTracker.getActiveSession()
+            if (session != null) {
+                Log.w(TAG, "onPoll: DB session null, using tracker's in-memory session (id=${session.id}, date=${session.sessionDate})")
+            }
+        }
         val settings = repository.getContinuousUsageSettings()
 
         Log.d(TAG, "onPoll: state=$state, foreground=$foregroundApp, monitored=$isMonitoredNow, " +
@@ -160,12 +168,18 @@ class EnforcementEngine(
         when (state) {
             EngineState.IDLE -> {
                 if (remainingSeconds > 0) {
-                    widgetManager.showCountdown(remainingSeconds)
-                    widgetManager.updateCountdownColor(remainingSeconds)
-                    usageTracker.persistCountdownState(now, remainingSeconds)
-                    state = EngineState.COUNTDOWN
-                    trackedApp = foregroundApp
-                    Log.d(TAG, "IDLE → COUNTDOWN: $foregroundApp, remaining=${remainingSeconds}s")
+                    val shown = widgetManager.showCountdown(remainingSeconds)
+                    if (shown) {
+                        widgetManager.updateCountdownColor(remainingSeconds)
+                        usageTracker.persistCountdownState(now, remainingSeconds)
+                        state = EngineState.COUNTDOWN
+                        trackedApp = foregroundApp
+                        Log.d(TAG, "IDLE → COUNTDOWN: $foregroundApp, remaining=${remainingSeconds}s")
+                    } else {
+                        // 悬浮窗权限缺失，无法显示倒计时 widget — 保持 IDLE，
+                        // 下一轮询会重试（权限可能被用户临时授予）
+                        Log.w(TAG, "IDLE → COUNTDOWN FAILED: overlay not shown (no permission?), staying IDLE for retry")
+                    }
                 } else {
                     // 时间已用完（可能是之前会话累积），直接进入 REST
                     enterRest("连续使用时间已达限制", foregroundApp, now)
@@ -189,18 +203,31 @@ class EnforcementEngine(
         val session = repository.getActiveContinuousSession()
         if (session == null) {
             state = EngineState.IDLE
+            Log.d(TAG, "restoreFromDB → IDLE (no active session)")
             return
         }
 
         // Rest active?
         if (session.restEndTime != null && session.restEndTime!! > now) {
-            state = EngineState.REST
-            restCompleted = false
-            overlayShowing = true
-            resetPendingLeave()
             val remaining = (session.restEndTime!! - now) / 1000L
-            overlayManager.showLockOverlay("正在休息中...", "", remaining.toInt().coerceAtLeast(0))
-            Log.d(TAG, "restoreFromDB → REST, remaining=${remaining}s")
+            val overlayShown = overlayManager.showLockOverlay("正在休息中...", "", remaining.toInt().coerceAtLeast(0))
+            if (overlayShown) {
+                state = EngineState.REST
+                restCompleted = false
+                overlayShowing = true
+                resetPendingLeave()
+                Log.d(TAG, "restoreFromDB → REST, remaining=${remaining}s")
+            } else {
+                // 悬浮窗权限缺失，无法恢复 REST 状态 — 停用旧会话，从 IDLE 开始
+                repository.deactivateContinuousSession(session.id ?: run {
+                    state = EngineState.IDLE
+                    return
+                })
+                usageTracker.reset()
+                state = EngineState.IDLE
+                overlayShowing = false
+                Log.w(TAG, "restoreFromDB → IDLE: cannot show overlay (no permission?), session deactivated")
+            }
             return
         }
 
@@ -208,12 +235,18 @@ class EnforcementEngine(
         if (session.countdownStartedAt != null && session.countdownTotalSeconds != null) {
             val remaining = calculateCountdownRemaining(session, now)
             if (remaining > 0) {
-                state = EngineState.COUNTDOWN
-                trackedApp = trackedApp ?: repository.getMonitoredApps().firstOrNull()?.packageName
-                resetPendingLeave()
-                widgetManager.showCountdown(remaining)
-                widgetManager.updateCountdownColor(remaining)
-                Log.d(TAG, "restoreFromDB → COUNTDOWN, remaining=${remaining}s")
+                val countdownShown = widgetManager.showCountdown(remaining)
+                if (countdownShown) {
+                    state = EngineState.COUNTDOWN
+                    trackedApp = trackedApp ?: repository.getMonitoredApps().firstOrNull()?.packageName
+                    resetPendingLeave()
+                    widgetManager.updateCountdownColor(remaining)
+                    Log.d(TAG, "restoreFromDB → COUNTDOWN, remaining=${remaining}s")
+                } else {
+                    // 悬浮窗权限缺失，无法恢复 COUNTDOWN 状态 — 从 IDLE 开始，下一轮询会重试
+                    state = EngineState.IDLE
+                    Log.w(TAG, "restoreFromDB → IDLE: cannot show countdown (no permission?)")
+                }
                 return
             }
             // Countdown expired → trigger rest
@@ -448,7 +481,7 @@ class EnforcementEngine(
         // If user is actively entering password, don't hide/show overlay based on foregroundApp changes.
         // Soft keyboard may cause foregroundApp detection to return null/wrong app.
         // Check both the overlay's internal flag and the PasswordInputActivity flag.
-        if (overlayManager.isPasswordInputActive || NativeOverlayManager.passwordInputActivityActive) {
+        if (overlayManager.isPasswordInputActive || NativeOverlayManager.passwordInputActivityActive || overlayManager.isCouponExchangeActive) {
             Log.d(TAG, "REST: password input active, skipping overlay visibility change")
             return
         }
@@ -464,9 +497,12 @@ class EnforcementEngine(
                     // 用户在受监控 app 上 — 如果 overlay 未显示（如切后台后切回），按剩余时间重新显示
                     if (!overlayShowing && foregroundApp != null) {
                         val restRemainingSec = ((timePeriodRestEndTime - now) / 1000L).toInt().coerceAtLeast(0)
-                        overlayManager.showLockOverlay("正在休息中...", foregroundApp, restRemainingSec, "time_period")
-                        overlayShowing = true
-                        Log.d(TAG, "REST(time_period): re-showed overlay (countdown=${restRemainingSec}s)")
+                        overlayShowing = overlayManager.showLockOverlay("正在休息中...", foregroundApp, restRemainingSec, "time_period")
+                        if (overlayShowing) {
+                            Log.d(TAG, "REST(time_period): re-showed overlay (countdown=${restRemainingSec}s)")
+                        } else {
+                            Log.w(TAG, "REST(time_period): failed to re-show overlay (no permission?)")
+                        }
                     }
                 } else if (foregroundApp != null || selfAppForeground) {
                     resetPendingLeave()
@@ -481,9 +517,20 @@ class EnforcementEngine(
                 // 1 分钟倒计时已结束（ticker 已自动 markRestEnded 启用按钮）
                 if (isOnMonitoredApp) {
                     resetPendingLeave()
-                    // 用户仍在受监控 app — 调用 markRestEnded 确保按钮启用（覆盖 ticker 被取消的场景）
-                    overlayManager.markRestEnded()
-                    Log.d(TAG, "REST(time_period): rest ended, user on monitored app, waiting for manual dismiss")
+                    if (overlayShowing && overlayManager.isLockOverlayShowing) {
+                        // overlay 确实在显示 — 调用 markRestEnded 确保按钮启用
+                        overlayManager.markRestEnded()
+                        Log.d(TAG, "REST(time_period): rest ended, user on monitored app, waiting for manual dismiss")
+                    } else {
+                        // overlay 不存在（权限丢失时未成功显示）— 不能等用户关闭一个不存在的 overlay，直接转 IDLE
+                        overlayShowing = false
+                        state = EngineState.IDLE
+                        restCompleted = false
+                        trackedApp = null
+                        timePeriodRestEndTime = 0L
+                        currentViolationType = "continuous"
+                        Log.w(TAG, "REST(time_period) → IDLE: overlay not actually showing, escaping stuck state")
+                    }
                 } else if (foregroundApp != null || selfAppForeground) {
                     resetPendingLeave()
                     // 用户已离开受监控 app — 隐藏 overlay，转 IDLE
@@ -513,9 +560,12 @@ class EnforcementEngine(
                 // User is on monitored app — show overlay if not showing
                 if (!overlayShowing) {
                     val restRemainingSec = ((session!!.restEndTime!! - now) / 1000L).toInt().coerceAtLeast(0)
-                    overlayManager.showLockOverlay("正在休息中...", "", restRemainingSec)
-                    overlayShowing = true
-                    Log.d(TAG, "REST: re-showed overlay (countdown=${restRemainingSec}s)")
+                    overlayShowing = overlayManager.showLockOverlay("正在休息中...", "", restRemainingSec)
+                    if (overlayShowing) {
+                        Log.d(TAG, "REST: re-showed overlay (countdown=${restRemainingSec}s)")
+                    } else {
+                        Log.w(TAG, "REST: failed to re-show overlay (no permission?)")
+                    }
                 }
             } else if (foregroundApp != null || selfAppForeground) {
                 resetPendingLeave()
@@ -541,12 +591,18 @@ class EnforcementEngine(
 
             if (isOnMonitoredApp) {
                 resetPendingLeave()
-                // User is on monitored app — keep overlay visible (wait for manual dismiss)
-                // 重构（解决⑥）：明确视觉反馈 —— 按钮转绿、文案改"可以继续啦"，让用户知道休息已结束、可手动关闭。
-                // 保持 REST 状态（不转 IDLE），避免 markRestEnded 的弹窗与倒计时widget同屏。
-                // 用户点按钮 → onOverlayDismissed → IDLE；用户切走 → 下方 else 分支 → IDLE。
-                overlayManager.markRestEnded()
-                Log.d(TAG, "REST: rest ended, user on monitored app, overlay marked rest-ended for manual dismiss")
+                if (overlayShowing && overlayManager.isLockOverlayShowing) {
+                    // overlay 确实在显示 — 保持 REST 状态等用户手动关闭
+                    overlayManager.markRestEnded()
+                    Log.d(TAG, "REST: rest ended, user on monitored app, overlay marked rest-ended for manual dismiss")
+                } else {
+                    // overlay 不存在（权限丢失时未成功显示）— 直接转 IDLE，避免卡死
+                    overlayShowing = false
+                    state = EngineState.IDLE
+                    restCompleted = false
+                    trackedApp = null
+                    Log.w(TAG, "REST → IDLE: overlay not actually showing, escaping stuck state")
+                }
             } else if (foregroundApp != null || selfAppForeground) {
                 resetPendingLeave()
                 // User left monitored app — hide overlay and transition to IDLE
@@ -592,9 +648,21 @@ class EnforcementEngine(
         }
         widgetManager.hideCountdown()
         resetPendingLeave()
-        overlayManager.showLockOverlay(reason, packageName, restSeconds, violationType)
-        overlayShowing = true
+        val overlayShown = overlayManager.showLockOverlay(reason, packageName, restSeconds, violationType)
+        overlayShowing = overlayShown
         restCompleted = false
+
+        if (!overlayShown) {
+            // 悬浮窗权限缺失或显示失败 — 不能进入 REST（没有 overlay 用户无法关闭，会永久卡死）
+            // 降级为 IDLE，下一轮询会重新检测并重试
+            state = EngineState.IDLE
+            trackedApp = null
+            currentViolationType = "continuous"
+            timePeriodRestEndTime = 0L
+            Log.w(TAG, "→ REST FAILED: overlay not shown (no permission?), staying IDLE for retry")
+            return
+        }
+
         state = EngineState.REST
 
         // Move the monitored app to background (same as pressing HOME)
@@ -632,11 +700,21 @@ class EnforcementEngine(
             countdownTotalSeconds = null,
             updatedAt = now
         ))
+        val overlayShown = overlayManager.showLockOverlay("正在休息中...", "", settings.restSeconds.toInt())
+        overlayShowing = overlayShown
+
+        if (!overlayShown) {
+            // 悬浮窗权限缺失 — 不能进入 REST，停用会话，降级为 IDLE
+            repository.deactivateContinuousSession(session.id ?: return)
+            usageTracker.reset()
+            state = EngineState.IDLE
+            Log.w(TAG, "triggerRestFromExpiredCountdown → IDLE: overlay not shown (no permission?)")
+            return
+        }
+
         state = EngineState.REST
         restCompleted = false
-        overlayShowing = true
         resetPendingLeave()
-        overlayManager.showLockOverlay("正在休息中...", "", settings.restSeconds.toInt())
 
         // Move the monitored app to background
         moveToBackground()

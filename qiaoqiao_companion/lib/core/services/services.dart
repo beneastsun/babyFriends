@@ -2,3 +2,4 @@
 export 'config_sync_service.dart';
 export 'animation_service.dart';
 export 'sound_service.dart';
+export 'notification_service.dart';

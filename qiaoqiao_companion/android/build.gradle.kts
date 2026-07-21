@@ -2,6 +2,11 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        maven {
+            // Flutter engine artifacts (arm64_v8a_debug, flutter_embedding_debug, etc.)
+            // Tsinghua mirror may not sync these; official source is required.
+            url = uri("https://storage.googleapis.com/download.flutter.io")
+        }
     }
 }
 

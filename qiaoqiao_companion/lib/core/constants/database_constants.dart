@@ -71,21 +71,17 @@ enum RuleType {
   }
 }
 
-/// 加时券类型枚举
+/// 加时券类型枚举（自由输入模式下仅保留 custom 兼容旧数据）
 enum CouponType {
-  small('small', 15, 30),
-  medium('medium', 30, 50),
-  large('large', 60, 80);
+  custom('custom');
 
-  const CouponType(this.code, this.durationMinutes, this.cost);
+  const CouponType(this.code);
   final String code;
-  final int durationMinutes;
-  final int cost;
 
   static CouponType fromCode(String code) {
     return CouponType.values.firstWhere(
       (e) => e.code == code,
-      orElse: () => CouponType.small,
+      orElse: () => CouponType.custom,
     );
   }
 }
@@ -186,7 +182,8 @@ enum TaskCategory {
 enum LimitAdjustmentSource {
   coupon('coupon'),
   taskPenalty('task_penalty'),
-  parentGrant('parent_grant');
+  parentGrant('parent_grant'),
+  countdownExchange('countdown_exchange');
 
   const LimitAdjustmentSource(this.code);
   final String code;
@@ -238,4 +235,7 @@ class PointsConstants {
   static const int dailyBonus = 5;
   static const int overtimePenalty = 20;
   static const int ruleViolationPenalty = 30;
+
+  /// 积分兑换加时券比例：10 积分 = 1 分钟
+  static const int exchangePointsPerMinute = 10;
 }

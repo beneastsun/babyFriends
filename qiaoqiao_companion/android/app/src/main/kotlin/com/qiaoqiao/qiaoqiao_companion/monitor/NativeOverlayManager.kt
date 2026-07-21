@@ -44,6 +44,8 @@ class NativeOverlayManager(private val context: Context) {
     private var windowManager: WindowManager? = null
     private var overlayView: View? = null
     private var isShowing = false
+    /** Public read-only accessor for lock overlay visibility (used by EnforcementEngine to detect ghost REST) */
+    val isLockOverlayShowing: Boolean get() = isShowing && !isHiding
     /** 标记 overlay 正在淡出动画中（避免 hideOverlay 重复调用导致动画重启 + showLockOverlay 误走 calibrate 路径） */
     private var isHiding = false
     private var currentBlockedPackage: String? = null
@@ -55,6 +57,9 @@ class NativeOverlayManager(private val context: Context) {
     private var countdownRunnable: Runnable? = null
     private var countdownWallClockStartMs: Long = 0L
     private var countdownTotalMs: Long = 0L
+    /** 原始总时长（毫秒），仅 startCountdownAnimation 设置、extendCountdown 累加，calibrate 不重置。
+     *  作为百分比计算的稳定分母（countdownTotalMs 会被 calibrate 重置，不适合做分母）。 */
+    private var originalTotalMs: Long = 0L
     private var countdownTextTime: TextView? = null
     private var countdownLayoutParams: WindowManager.LayoutParams? = null
     private var countdownCancelled = false
@@ -63,11 +68,10 @@ class NativeOverlayManager(private val context: Context) {
     private var onCountdownZeroReached: Runnable? = null
     /**
      * 倒计时归零公共 hook，供 WidgetManager 注入（转发给 EnforcementEngine）。
-     * 设置后会覆盖内部 onCountdownZeroReached，ticker 归零时统一回调此 hook。
+     * 独立于内部 onCountdownZeroReached，showCountdownOverlay 不会覆盖此 hook。
+     * ticker 归零时优先回调此 hook，若为 null 则回退到 onCountdownZeroReached。
      */
-    var onCountdownZeroReachedHook: Runnable?
-        get() = onCountdownZeroReached
-        set(value) { onCountdownZeroReached = value }
+    var onCountdownZeroReachedHook: Runnable? = null
     /** 倒计时结束时的墙上时钟时间戳（权威源）。remaining = (endTime - now)。 */
     private var countdownEndTimeMs: Long = 0L
     /** 当前剩余秒数（毫秒），用于颜色阈值判定，由 ticker 维护，避免外部轮询驱动 */
@@ -94,10 +98,14 @@ class NativeOverlayManager(private val context: Context) {
     // Lock overlay dismissed callback — notifies EnforcementEngine when user clicks button
     var onLockOverlayDismissed: (() -> Unit)? = null
 
-    // 家长入口回调 — 从倒计时widget点击家长入口
-    var onParentEntryFromWidget: (() -> Unit)? = null
     // 家长密码验证成功回调 — 从lock overlay或密码弹窗验证成功
     var onParentPasswordVerified: (() -> Unit)? = null
+
+    // Widget 单击回调 — 单击倒计时 widget 触发原生兑换 overlay
+    var onWidgetClicked: (() -> Unit)? = null
+    // 积分兑换是否活跃（兑换 overlay 显示中），用于告诉 EnforcementEngine 跳过 leave 检测
+    var isCouponExchangeActive: Boolean = false
+        internal set
 
     // 密码输入是否活跃（自定义数字键盘正在显示）
     // 用于告诉 EnforcementEngine 在此期间不要因 foregroundApp 变化而隐藏 overlay
@@ -110,6 +118,17 @@ class NativeOverlayManager(private val context: Context) {
     private var keypadInput: StringBuilder = StringBuilder()
     private var keypadDots: List<TextView> = emptyList()
     private var keypadError: TextView? = null
+
+    // 原生兑换 overlay 相关
+    private var exchangeOverlayView: View? = null
+    private var isExchangeShowing = false
+    private var exchangeSelectedMinutes: Int = 5
+    private var exchangePointsBalance: Int = 0
+    private var exchangeAlreadyDoneToday: Boolean = false
+    /** 原生积分/调整记录 DB 访问仓库（懒初始化） */
+    private var pointsRepository: NativePointsRepository? = null
+    /** 兑换回调：成功兑换 minutes 分钟后由外部（MonitorForegroundService）延长倒计时 */
+    var onExchangeConfirmed: ((minutes: Int) -> Unit)? = null
 
     /**
      * 检查是否有悬浮窗权限
@@ -130,10 +149,10 @@ class NativeOverlayManager(private val context: Context) {
      * @param durationSeconds 可选：休息倒计时秒数（0=不显示倒计时）
      * @param violationType 违规类型："continuous"（连续使用）或 "time_period"（时间范围违规）
      */
-    fun showLockOverlay(reason: String, packageName: String, durationSeconds: Int = 0, violationType: String = "continuous") {
+    fun showLockOverlay(reason: String, packageName: String, durationSeconds: Int = 0, violationType: String = "continuous"): Boolean {
         if (!hasOverlayPermission()) {
             Log.w(TAG, "No overlay permission, cannot show lock")
-            return
+            return false
         }
 
         // 如果正在淡出（hideOverlay 动画进行中），立即清除旧视图后再创建新的，
@@ -149,7 +168,7 @@ class NativeOverlayManager(private val context: Context) {
             if (durationSeconds > 0) {
                 calibrateLockCountdown(System.currentTimeMillis() + durationSeconds * 1000L)
             }
-            return
+            return true
         }
 
         // 切换到不同 App —— 先隐藏旧 overlay，再走完整创建流程
@@ -202,8 +221,10 @@ class NativeOverlayManager(private val context: Context) {
             }
 
             Log.d(TAG, "Lock overlay shown for $packageName: $reason (duration=$durationSeconds)")
+            return true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to show lock overlay", e)
+            return false
         }
     }
 
@@ -220,6 +241,7 @@ class NativeOverlayManager(private val context: Context) {
         isHiding = true
         cancelLockCountdown()
         isPasswordInputActive = false
+        isCouponExchangeActive = false
 
         overlayView?.let { view ->
             try {
@@ -252,6 +274,7 @@ class NativeOverlayManager(private val context: Context) {
     fun hideOverlayImmediate() {
         cancelLockCountdown()
         isPasswordInputActive = false
+        isCouponExchangeActive = false
         try {
             overlayView?.let { windowManager?.removeView(it) }
         } catch (e: Exception) {
@@ -697,10 +720,10 @@ class NativeOverlayManager(private val context: Context) {
      * @param onEnded 倒计时结束的回调（widget 被移除后触发）
      * @param onZeroReached 倒计时归零瞬间触发的回调（在 widget 移除前触发，用于立刻衔接 REST）
      */
-    fun showCountdownOverlay(totalSeconds: Long, onEnded: Runnable? = null, onZeroReached: Runnable? = null) {
+    fun showCountdownOverlay(totalSeconds: Long, onEnded: Runnable? = null, onZeroReached: Runnable? = null): Boolean {
         if (!hasOverlayPermission()) {
             Log.w(TAG, "No overlay permission, cannot show countdown")
-            return
+            return false
         }
 
         hideCountdownOverlay()
@@ -752,8 +775,10 @@ class NativeOverlayManager(private val context: Context) {
 
             startCountdownAnimation(totalSeconds)
             Log.d(TAG, "Countdown overlay shown: ${totalSeconds}s")
+            return true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to show countdown overlay", e)
+            return false
         }
     }
 
@@ -775,10 +800,10 @@ class NativeOverlayManager(private val context: Context) {
         onAlert2min: Runnable? = null,
         onEnded: Runnable? = null,
         onZeroReached: Runnable? = null
-    ) {
+    ): Boolean {
         countdownAlert3min = onAlert3min
         countdownAlert2min = onAlert2min
-        showCountdownOverlay(totalSeconds, onEnded, onZeroReached)
+        return showCountdownOverlay(totalSeconds, onEnded, onZeroReached)
     }
 
     /**
@@ -807,6 +832,27 @@ class NativeOverlayManager(private val context: Context) {
         countdownWallClockStartMs = now
         countdownTotalMs = (endTimeMs - now).coerceAtLeast(0)
         Log.d(TAG, "Countdown calibrated to endTime, remaining=${countdownTotalMs / 1000}s (no restart)")
+    }
+
+    /**
+     * 延长倒计时（积分兑换加时后调用）
+     * 使用 calibrateCountdown 更新 endTime，不重启 ticker，无抖动
+     */
+    fun extendCountdown(extraSeconds: Long) {
+        if (!isCountdownShowing) return
+        val newEndTime = countdownEndTimeMs + extraSeconds * 1000
+        // 累加原始总时长，百分比分母增大，兑换后百分比跳升（类似充电）
+        originalTotalMs += extraSeconds * 1000L
+        calibrateCountdown(newEndTime)
+        Log.d(TAG, "Countdown extended by ${extraSeconds}s, new endTime=$newEndTime, originalTotal=${originalTotalMs / 1000}s")
+    }
+
+    /**
+     * 隐藏积分兑换入口（已废弃：coupon_entry 图标已移除，单击 widget 直接弹原生兑换 overlay）
+     * 保留为空方法避免 OverlayChannel 调用点编译错误。
+     */
+    fun hideCouponEntry() {
+        // no-op: coupon_entry 图标已移除
     }
 
     /**
@@ -847,36 +893,41 @@ class NativeOverlayManager(private val context: Context) {
     fun isCountdownShowing(): Boolean = isCountdownShowing
 
     /**
-     * 创建倒计时悬浮窗视图
+     * 创建倒计时悬浮窗视图（电量样式：圆环显示剩余比例 + 中央百分比数字）
      * @param initialSeconds 初始显示秒数（避免硬编码 "05:00" 导致首帧闪烁）
      */
     private fun createCountdownView(initialSeconds: Long = 300L): View {
         val density = context.resources.displayMetrics.density
         val size = (56 * density).toInt()
 
-        // 外层：EnergyBarView 作为圆形能量环容器
+        // 外层：EnergyBarView 作为圆形能量环容器（电池样式：满环→空环递减）
         val energyBar = EnergyBarView(context).apply {
             tag = "countdown_energy_bar"
             layoutParams = FrameLayout.LayoutParams(size, size)
         }
 
-        // 中央内容垂直排列：🐻 + 倒计时文字（默认隐藏）+ 家长入口
+        // 中央内容垂直排列：百分比数字 + 倒计时文字（≤5min 显示）
         val centerLayout = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             layoutParams = FrameLayout.LayoutParams(size, size)
         }
 
-        val emojiView = TextView(context).apply {
-            tag = "countdown_emoji"
-            text = "🐻"
-            textSize = 20f
+        // 百分比数字（替代原 emoji，电量样式核心元素）
+        val percentageView = TextView(context).apply {
+            tag = "countdown_percentage"
+            text = "100%"
+            textSize = 13f
+            setTextColor(0xFFFFFFFF.toInt())
+            typeface = Typeface.DEFAULT_BOLD
+            setShadowLayer(2f, 1f, 1f, 0x40000000)
+            gravity = Gravity.CENTER
         }
 
         val timeView = TextView(context).apply {
             tag = "countdown_time"
             text = formatCountdownTime(initialSeconds)
-            textSize = 12f
+            textSize = 11f
             setTextColor(0xFFFFFFFF.toInt())
             typeface = Typeface.DEFAULT_BOLD
             setShadowLayer(2f, 1f, 1f, 0x40000000)
@@ -885,27 +936,13 @@ class NativeOverlayManager(private val context: Context) {
             gravity = Gravity.CENTER
         }
 
-        centerLayout.addView(emojiView)
+        centerLayout.addView(percentageView)
         centerLayout.addView(timeView)
-
-        // 家长入口 🔒 放在右下角
-        val parentEntryIcon = TextView(context).apply {
-            tag = "parent_entry"
-            text = "🔒"
-            textSize = 10f
-            alpha = 0.6f
-            setOnClickListener { onParentEntryFromWidget?.invoke() }
-        }
 
         val container = FrameLayout(context).apply {
             layoutParams = FrameLayout.LayoutParams(size, size)
             addView(energyBar)
             addView(centerLayout)
-            addView(parentEntryIcon, FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM or Gravity.END
-            ))
         }
 
         setupDragListener(container)
@@ -933,6 +970,7 @@ class NativeOverlayManager(private val context: Context) {
         val now = System.currentTimeMillis()
         countdownWallClockStartMs = now
         countdownTotalMs = startSeconds * 1000L
+        originalTotalMs = startSeconds * 1000L
         countdownEndTimeMs = now + countdownTotalMs
         countdownCurrentRemainingMs = countdownTotalMs
 
@@ -947,11 +985,14 @@ class NativeOverlayManager(private val context: Context) {
 
                 countdownTextTime?.text = formatCountdownTime(remainingSec.toLong())
 
-                // 驱动能量条 progress（递增型：已用比例增加→填充越多）
-                val totalSec = (countdownTotalMs / 1000L).coerceAtLeast(1L)
-                val elapsedSec = (totalSec - remainingSec.toLong()).coerceAtLeast(0L)
-                val progress = (elapsedSec.toFloat() / totalSec.toFloat()).coerceIn(0f, 1f)
-                (countdownWidgetView?.findViewWithTag("countdown_energy_bar") as? EnergyBarView)?.progress = progress
+                // 驱动能量条 progress + 百分比文字（用 originalTotalMs 做稳定分母，不受 calibrate 重置影响）
+                // 电量样式：progress = 已用比例，圆环绘制剩余比例(1-progress)，百分比文字显示剩余%
+                val totalSec = (originalTotalMs / 1000L).coerceAtLeast(1L)
+                val remainingRatio = (remainingSec.toFloat() / totalSec.toFloat()).coerceIn(0f, 1f)
+                val usedRatio = 1f - remainingRatio
+                (countdownWidgetView?.findViewWithTag("countdown_energy_bar") as? EnergyBarView)?.progress = usedRatio
+                (countdownWidgetView?.findViewWithTag("countdown_percentage") as? TextView)?.text =
+                    "${(remainingRatio * 100).toInt()}%"
 
                 // ≤5 分钟才显示倒计时文字，否则隐藏（弱化数字焦虑）
                 val timeView = countdownTextTime
@@ -982,7 +1023,11 @@ class NativeOverlayManager(private val context: Context) {
                 } else {
                     if (!countdownCancelled) {
                         // 归零瞬间先触发 REST 衔接，再走原有移除流程
-                        try { onCountdownZeroReached?.run() } catch (e: Exception) {
+                        // 优先回调 WidgetManager 注入的 hook（转发给 EnforcementEngine），
+                        // 回退到 showCountdownOverlay 传入的 onZeroReached（兼容旧路径）
+                        try {
+                            (onCountdownZeroReachedHook ?: onCountdownZeroReached)?.run()
+                        } catch (e: Exception) {
                             Log.e(TAG, "onZeroReached failed", e)
                         }
                         onCountdownEnded?.run()
@@ -1106,13 +1151,16 @@ class NativeOverlayManager(private val context: Context) {
     }
 
     /**
-     * 设置拖动监听
+     * 设置拖动监听（含单击检测：未拖动则触发 onWidgetClicked → 原生兑换 overlay）
      */
     private fun setupDragListener(view: View) {
         var initialX = 0
         var initialY = 0
         var initialTouchX = 0f
         var initialTouchY = 0f
+        var touchDownTime = 0L
+        val density = context.resources.displayMetrics.density
+        val touchSlop = (10 * density) // 10dp 触摸 slop
 
         view.setOnTouchListener { v, event ->
             when (event.action) {
@@ -1123,6 +1171,7 @@ class NativeOverlayManager(private val context: Context) {
                     }
                     initialTouchX = event.rawX
                     initialTouchY = event.rawY
+                    touchDownTime = System.currentTimeMillis()
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -1130,6 +1179,19 @@ class NativeOverlayManager(private val context: Context) {
                         params.x = initialX + (initialTouchX - event.rawX).toInt()
                         params.y = initialY + (event.rawY - initialTouchY).toInt()
                         windowManager?.updateViewLayout(view, params)
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    val dx = event.rawX - initialTouchX
+                    val dy = event.rawY - initialTouchY
+                    val moved = dx * dx + dy * dy > touchSlop * touchSlop
+                    val duration = System.currentTimeMillis() - touchDownTime
+                    // 未拖动且时长 < 500ms → 判定为单击 → 触发兑换 overlay
+                    if (!moved && duration < 500) {
+                        try { onWidgetClicked?.invoke() } catch (e: Exception) {
+                            Log.e(TAG, "onWidgetClicked failed", e)
+                        }
                     }
                     true
                 }
@@ -1198,7 +1260,7 @@ class NativeOverlayManager(private val context: Context) {
 
     /**
      * 设置倒计时悬浮窗颜色
-     * 根据阈值切换渐变背景、emoji 和脉冲动画，保留圆角
+     * 根据阈值切换渐变背景和脉冲动画，保留圆角（电量样式无 emoji，色阶由背景+圆环表达）
      *
      * @param color Android Color int (e.g. Color.YELLOW, Color.RED)
      */
@@ -1208,28 +1270,24 @@ class NativeOverlayManager(private val context: Context) {
             val density = context.resources.displayMetrics.density
             val cornerRadius = (20 * density).toFloat()
 
-            // 根据传入颜色映射到渐变对 + emoji + 脉冲周期
-            val (gradient, pulsePeriod) = when (color) {
+            // 根据传入颜色映射到渐变对 + 脉冲周期
+            val (colors, pulsePeriod) = when (color) {
                 android.graphics.Color.YELLOW ->
-                    Triple(0xFFFFB74D.toInt(), 0xFFFF9800.toInt(), "⏳") to 1500L  // 5min: 琥珀黄→暖橙
+                    Pair(intArrayOf(0xFFFFB74D.toInt(), 0xFFFF9800.toInt()), 1500L)  // 5min: 琥珀黄→暖橙
                 0xFFFF9800.toInt() ->
-                    Triple(0xFFFF7043.toInt(), 0xFFFF5722.toInt(), "⚠️") to 1000L  // 3min: 橙红→深橙
+                    Pair(intArrayOf(0xFFFF7043.toInt(), 0xFFFF5722.toInt()), 1000L)  // 3min: 橙红→深橙
                 android.graphics.Color.RED ->
-                    Triple(0xFFEF5350.toInt(), 0xFFC62828.toInt(), "🔴") to 600L   // 2min: 红色→深红
+                    Pair(intArrayOf(0xFFEF5350.toInt(), 0xFFC62828.toInt()), 600L)   // 2min: 红色→深红
                 else -> return
             }
-            val (startColor, endColor, emoji) = gradient
 
             // 保留圆角渐变背景，只是更换颜色
             countdownWidgetView?.background = android.graphics.drawable.GradientDrawable(
                 android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
-                intArrayOf(startColor, endColor)
+                colors
             ).apply {
                 this.cornerRadius = cornerRadius
             }
-
-            // 更新 emoji
-            countdownWidgetView?.findViewWithTag<TextView>("countdown_emoji")?.text = emoji
 
             // 启动脉冲动画
             startPulseAnimation(pulsePeriod)
@@ -1551,13 +1609,406 @@ class NativeOverlayManager(private val context: Context) {
         }
     }
 
+    // ==================== 原生兑换 overlay（TYPE_APPLICATION_OVERLAY） ====================
+    // 单击倒计时 widget 触发，不启动 MainActivity，受监控 app 保持前台。
+    // 由 NativePointsRepository 直接读写 DB 完成扣分与加时记录，不依赖 Flutter engine。
+
     /**
-     * 清除所有 overlay（倒计时 widget + 锁定覆盖层）
+     * 显示原生兑换 overlay。
+     *
+     * 流程：设 isCouponExchangeActive=true → 读余额+今日是否已兑换 → 构建 view → addView → 入场动画。
+     * [hideExchangeOverlay] 必须在任意退出路径调用以重置 isCouponExchangeActive（避免 Fix 5 卡死）。
+     */
+    fun showExchangeOverlay() {
+        if (isExchangeShowing) return
+        try {
+            // 懒初始化积分仓库
+            if (pointsRepository == null) {
+                pointsRepository = NativePointsRepository(context)
+            }
+            // 读取积分余额与今日兑换状态
+            exchangePointsBalance = pointsRepository?.getCurrentBalance() ?: 0
+            exchangeAlreadyDoneToday = pointsRepository?.hasExchangedToday() ?: false
+            exchangeSelectedMinutes = 5
+
+            windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            exchangeOverlayView = createExchangeOverlayView()
+
+            val flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_FULLSCREEN or
+                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+            val layoutParams = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                } else {
+                    @Suppress("DEPRECATION")
+                    WindowManager.LayoutParams.TYPE_PHONE
+                },
+                flags,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.CENTER
+                softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+            }
+
+            windowManager?.addView(exchangeOverlayView, layoutParams)
+            isExchangeShowing = true
+            isCouponExchangeActive = true
+
+            exchangeOverlayView?.alpha = 0f
+            exchangeOverlayView?.animate()
+                ?.alpha(1f)
+                ?.setDuration(200)
+                ?.setInterpolator(DecelerateInterpolator())
+                ?.start()
+
+            Log.d(TAG, "Exchange overlay shown, balance=$exchangePointsBalance, alreadyDone=$exchangeAlreadyDoneToday")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to show exchange overlay", e)
+            isCouponExchangeActive = false
+            isExchangeShowing = false
+            exchangeOverlayView = null
+        }
+    }
+
+    /**
+     * 隐藏原生兑换 overlay（必定重置 isCouponExchangeActive，避免标志卡死）。
+     */
+    fun hideExchangeOverlay() {
+        if (!isExchangeShowing) {
+            isCouponExchangeActive = false
+            return
+        }
+        isExchangeShowing = false
+        isCouponExchangeActive = false
+        val view = exchangeOverlayView
+        exchangeOverlayView = null
+        view?.let {
+            try {
+                it.animate().cancel()
+                windowManager?.removeView(it)
+            } catch (e: Exception) {
+                try { windowManager?.removeView(it) } catch (_: Exception) {}
+            }
+        }
+        Log.d(TAG, "Exchange overlay hidden")
+    }
+
+    /**
+     * 创建兑换 overlay 视图（糖果主题，参考 createStandaloneKeypadView 风格）。
+     */
+    private fun createExchangeOverlayView(): View {
+        val candyPurple = 0xFFB57EDC.toInt()
+        val candyPeach = 0xFFFFAB91.toInt()
+        val density = context.resources.displayMetrics.density
+
+        val container = FrameLayout(context).apply {
+            setBackgroundColor(0xDD000000.toInt())
+            isClickable = true
+            isFocusable = true
+            // 点击外部空白不关闭（避免误触），仅通过关闭按钮退出
+        }
+
+        val card = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            background = android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(candyPurple, candyPeach)
+            ).apply { cornerRadius = 48f }
+            setPadding(
+                (24 * density).toInt(), (32 * density).toInt(),
+                (24 * density).toInt(), (28 * density).toInt()
+            )
+        }
+
+        // 顶部头部：⏱️ 图标 + 标题 + 积分余额 + 关闭按钮
+        val header = FrameLayout(context).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        val titleRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, (12 * density).toInt())
+        }
+        val iconBox = TextView(context).apply {
+            text = "⏱️"
+            textSize = 22f
+            gravity = Gravity.CENTER
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0x33FFFFFF.toInt()); cornerRadius = 14f
+            }
+            setPadding((10 * density).toInt(), (8 * density).toInt(), (10 * density).toInt(), (8 * density).toInt())
+        }
+        val titleText = TextView(context).apply {
+            text = "兑换加时"
+            textSize = 18f
+            setTextColor(0xFFFFFFFF.toInt())
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding((10 * density).toInt(), 0, 0, 0)
+        }
+        titleRow.addView(iconBox)
+        titleRow.addView(titleText)
+
+        val balanceText = TextView(context).apply {
+            tag = "exchange_balance"
+            text = "⭐ 积分: $exchangePointsBalance"
+            textSize = 13f
+            setTextColor(0xE6FFFFFF.toInt())
+            setPadding(0, 0, 0, (8 * density).toInt())
+        }
+
+        val closeBtn = TextView(context).apply {
+            text = "✕"
+            textSize = 16f
+            setTextColor(0xFFFFFFFF.toInt())
+            gravity = Gravity.CENTER
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0x33FFFFFF.toInt()); cornerRadius = 16f
+            }
+            val s = (32 * density).toInt()
+            layoutParams = FrameLayout.LayoutParams(s, s, Gravity.END or Gravity.TOP)
+            setOnClickListener { hideExchangeOverlay() }
+        }
+
+        header.addView(titleRow)
+        header.addView(closeBtn)
+        card.addView(header)
+        card.addView(balanceText)
+
+        if (exchangeAlreadyDoneToday) {
+            // 今日已兑换：显示提示，替换选择区域
+            val doneText = TextView(context).apply {
+                text = "今日已兑换\n明日再来吧 ✨"
+                textSize = 15f
+                setTextColor(0xFFFFFFFF.toInt())
+                gravity = Gravity.CENTER
+                setPadding(0, (24 * density).toInt(), 0, (24 * density).toInt())
+            }
+            card.addView(doneText)
+            val closeBtn2 = TextView(context).apply {
+                text = "关闭"
+                textSize = 16f
+                setTextColor(0xFFFFFFFF.toInt())
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(0xFFB0BEC5.toInt()); cornerRadius = 28f
+                }
+                setPadding(0, (16 * density).toInt(), 0, (16 * density).toInt())
+                setOnClickListener { hideExchangeOverlay() }
+            }
+            card.addView(closeBtn2)
+        } else {
+            // 比例说明条
+            val infoBar = TextView(context).apply {
+                text = "10 积分 = 1 分钟（最多 10 分钟）"
+                textSize = 12f
+                setTextColor(0xFFFFFFFF.toInt())
+                gravity = Gravity.CENTER
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(0x33FFFFFF.toInt()); cornerRadius = 10f
+                }
+                setPadding((12 * density).toInt(), (8 * density).toInt(), (12 * density).toInt(), (8 * density).toInt())
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                lp.bottomMargin = (12 * density).toInt()
+                layoutParams = lp
+            }
+            card.addView(infoBar)
+
+            // 快捷按钮 3 / 5 / 10 分钟
+            val chipsRow = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                setPadding(0, 0, 0, (12 * density).toInt())
+            }
+            val options = listOf(3, 5, 10)
+            for (min in options) {
+                val chip = TextView(context).apply {
+                    tag = "exchange_chip_$min"
+                    text = "${min}分钟"
+                    textSize = 13f
+                    setTextColor(0xFFFFFFFF.toInt())
+                    gravity = Gravity.CENTER
+                    typeface = Typeface.DEFAULT_BOLD
+                    isClickable = true
+                    isFocusable = true
+                    setPadding((20 * density).toInt(), (10 * density).toInt(), (20 * density).toInt(), (10 * density).toInt())
+                    updateChipStyle(this, min == exchangeSelectedMinutes)
+                    setOnClickListener {
+                        exchangeSelectedMinutes = min
+                        // 刷新所有 chip 样式
+                        for (m in options) {
+                            val c = card.findViewWithTag<TextView>("exchange_chip_$m")
+                            if (c != null) updateChipStyle(c, m == exchangeSelectedMinutes)
+                        }
+                        refreshExchangeSummary(card, density)
+                    }
+                }
+                val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                if (min != options.first()) lp.leftMargin = (8 * density).toInt()
+                chipsRow.addView(chip, lp)
+            }
+            card.addView(chipsRow)
+
+            // 所需积分行
+            val costRow = LinearLayout(context).apply {
+                tag = "exchange_cost_row"
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(0x33FFFFFF.toInt()); cornerRadius = 12f
+                }
+                setPadding((16 * density).toInt(), (14 * density).toInt(), (16 * density).toInt(), (14 * density).toInt())
+            }
+            val costLabel = TextView(context).apply {
+                text = "所需积分"
+                textSize = 14f
+                setTextColor(0xCCFFFFFF.toInt())
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            val costValue = TextView(context).apply {
+                tag = "exchange_cost_value"
+                textSize = 18f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(0xFFFFC107.toInt())
+            }
+            costRow.addView(costLabel)
+            costRow.addView(costValue)
+            card.addView(costRow)
+
+            // 不足提示
+            val insufficientTip = TextView(context).apply {
+                tag = "exchange_insufficient_tip"
+                textSize = 12f
+                setTextColor(0xFFFF6B6B.toInt())
+                setPadding(0, (8 * density).toInt(), 0, (4 * density).toInt())
+                visibility = View.GONE
+            }
+            card.addView(insufficientTip)
+
+            // 兑换按钮
+            val exchangeBtn = TextView(context).apply {
+                tag = "exchange_confirm_btn"
+                textSize = 16f
+                setTextColor(0xFFFFFFFF.toInt())
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                setPadding(0, (16 * density).toInt(), 0, (16 * density).toInt())
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { onExchangeConfirmClick(card, density) }
+            }
+            card.addView(exchangeBtn)
+
+            // 初始化摘要
+            refreshExchangeSummary(card, density)
+        }
+
+        val screenWidth = context.resources.displayMetrics.widthPixels
+        val cardMaxWidth = (320 * density).toInt()
+        val cardMarginH = (24 * density).toInt()
+        val cardParams = FrameLayout.LayoutParams(
+            minOf(screenWidth - cardMarginH * 2, cardMaxWidth),
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply { gravity = Gravity.CENTER }
+        container.addView(card, cardParams)
+        return container
+    }
+
+    /**
+     * 更新 chip 样式（选中高亮 / 未选中半透明）
+     */
+    private fun updateChipStyle(chip: TextView, selected: Boolean) {
+        chip.background = android.graphics.drawable.GradientDrawable().apply {
+            setColor(if (selected) 0xFFFFFFFF.toInt() else 0x33FFFFFF.toInt())
+            cornerRadius = 12f
+        }
+        chip.setTextColor(if (selected) 0xFFB57EDC.toInt() else 0xFFFFFFFF.toInt())
+    }
+
+    /**
+     * 刷新兑换摘要（所需积分、不足提示、按钮文案与可用状态）
+     */
+    private fun refreshExchangeSummary(card: View, density: Float) {
+        val cost = exchangeSelectedMinutes * NativePointsRepository.COST_PER_MINUTE
+        val canAfford = exchangePointsBalance >= cost
+        val maxAffordable = (exchangePointsBalance / NativePointsRepository.COST_PER_MINUTE)
+            .coerceIn(0, NativePointsRepository.MAX_MINUTES)
+
+        card.findViewWithTag<TextView>("exchange_cost_value")?.let { v ->
+            v.text = "⭐ $cost"
+            v.setTextColor(if (canAfford) 0xFFFFC107.toInt() else 0xFFFF6B6B.toInt())
+        }
+        card.findViewWithTag<TextView>("exchange_insufficient_tip")?.let { v ->
+            if (!canAfford && exchangeSelectedMinutes > 0) {
+                v.text = "积分不足，最多可兑换 $maxAffordable 分钟"
+                v.visibility = View.VISIBLE
+            } else {
+                v.visibility = View.GONE
+            }
+        }
+        card.findViewWithTag<TextView>("exchange_confirm_btn")?.let { v ->
+            if (canAfford && exchangeSelectedMinutes > 0) {
+                v.text = "兑换 ${exchangeSelectedMinutes} 分钟"
+                v.background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(0xFFB57EDC.toInt()); cornerRadius = 28f
+                }
+                v.isEnabled = true
+                v.isClickable = true
+            } else {
+                v.text = "积分不足"
+                v.background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(0xFFB0BEC5.toInt()); cornerRadius = 28f
+                }
+                v.isEnabled = false
+                v.isClickable = false
+            }
+        }
+    }
+
+    /**
+     * 兑换确认按钮点击：扣分+写记录 → 通知外部延长倒计时 → 关闭 overlay
+     */
+    private fun onExchangeConfirmClick(card: View, density: Float) {
+        val minutes = exchangeSelectedMinutes
+        val cost = minutes * NativePointsRepository.COST_PER_MINUTE
+        if (exchangePointsBalance < cost || minutes <= 0) return
+
+        // 扣分 + 写调整记录（事务）
+        val success = pointsRepository?.deductAndRecord(minutes) ?: false
+        if (!success) {
+            // 扣分失败（可能并发导致余额变化），刷新 UI
+            exchangePointsBalance = pointsRepository?.getCurrentBalance() ?: 0
+            refreshExchangeSummary(card, density)
+            return
+        }
+        // 通知外部（MonitorForegroundService）延长倒计时
+        try { onExchangeConfirmed?.invoke(minutes) } catch (e: Exception) {
+            Log.e(TAG, "onExchangeConfirmed failed", e)
+        }
+        // 关闭 overlay（hideExchangeOverlay 会重置 isCouponExchangeActive）
+        hideExchangeOverlay()
+    }
+
+    /**
+     * 清除所有 overlay（倒计时 widget + 锁定覆盖层 + 兑换 overlay）
      * 在 EnforcementEngine 启动前调用，确保没有残留的旧 widget
      */
     fun clearAllOverlays() {
         isPasswordInputActive = false
+        isCouponExchangeActive = false
         passwordInputActivityActive = false
+        onCountdownZeroReachedHook = null
+        hideExchangeOverlay()
         hideStandaloneKeypad()
         hideCountdownOverlay()
         hideOverlayImmediate()
@@ -1569,10 +2020,13 @@ class NativeOverlayManager(private val context: Context) {
      */
     fun destroy() {
         isPasswordInputActive = false
+        isCouponExchangeActive = false
         passwordInputActivityActive = false
+        onCountdownZeroReachedHook = null
         handler.removeCallbacksAndMessages(null)
         stopPulseAnimation()
         cancelLockCountdown()
+        hideExchangeOverlay()
         hideStandaloneKeypad()
         hideOverlayImmediate()
         hideCountdownOverlay()

@@ -49,10 +49,6 @@ class WidgetManager(private val overlayManager: NativeOverlayManager) {
      */
     var onCountdownZero: (() -> Unit)? = null
     /**
-     * 家长入口回调 — 从倒计时widget点击家长入口
-     */
-    var onParentEntryFromWidget: (() -> Unit)? = null
-    /**
      * 家长密码验证成功回调
      */
     var onParentPasswordVerified: (() -> Unit)? = null
@@ -71,19 +67,20 @@ class WidgetManager(private val overlayManager: NativeOverlayManager) {
     /**
      * Show the countdown widget with the remaining time.
      * Called when entering COUNTDOWN state (monitored app detected).
+     * @return true if overlay was shown successfully, false if permission denied
      */
-    fun showCountdown(remainingSeconds: Long) {
+    fun showCountdown(remainingSeconds: Long): Boolean {
         lastAppliedColorStage = COLOR_STAGE_NONE
-        overlayManager.showCountdownOverlayWithAlerts(
+        val shown = overlayManager.showCountdownOverlayWithAlerts(
             remainingSeconds,
             Runnable { },
             Runnable { },
             Runnable { },
             Runnable { }
         )
-        // 透传家长入口回调
-        overlayManager.onParentEntryFromWidget = onParentEntryFromWidget
-        overlayManager.onParentPasswordVerified = onParentPasswordVerified
+        // 回调由 MonitorForegroundService 直接在 overlayManager 上设置，无需在此透传
+        // （透传会用 WidgetManager 自身的 null 属性覆盖已设置的有效回调）
+        return shown
     }
 
     /**
@@ -155,6 +152,20 @@ class WidgetManager(private val overlayManager: NativeOverlayManager) {
     fun hideCountdown() {
         overlayManager.hideCountdownOverlay()
         lastAppliedColorStage = COLOR_STAGE_NONE
+    }
+
+    /**
+     * 延长倒计时（积分兑换加时后调用）
+     */
+    fun extendCountdown(extraSeconds: Long) {
+        overlayManager.extendCountdown(extraSeconds)
+    }
+
+    /**
+     * 隐藏积分兑换入口（已兑换后调用）
+     */
+    fun hideCouponEntry() {
+        overlayManager.hideCouponEntry()
     }
 
     /**

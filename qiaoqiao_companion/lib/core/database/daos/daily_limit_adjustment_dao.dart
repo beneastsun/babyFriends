@@ -26,6 +26,25 @@ class DailyLimitAdjustmentDao {
     return maps.map(DailyLimitAdjustment.fromMap).toList();
   }
 
+  /// 获取指定日期的调整记录，排除指定 source。
+  ///
+  /// 用于排除 [LimitAdjustmentSource.countdownExchange]：倒计时积分兑换加时
+  /// 只应延长当前倒计时（通过 extendCountdown 通道），不应抬高每日总限额，
+  /// 否则会导致"双重加时"。
+  Future<List<DailyLimitAdjustment>> getByDateExcludingSource(
+    String date,
+    LimitAdjustmentSource excludeSource,
+  ) async {
+    final database = await _db.database;
+    final maps = await database.query(
+      DatabaseConstants.tableDailyLimitAdjustments,
+      where: 'adjust_date = ? AND source != ?',
+      whereArgs: [date, excludeSource.code],
+      orderBy: 'created_at ASC',
+    );
+    return maps.map(DailyLimitAdjustment.fromMap).toList();
+  }
+
   Future<int> getTotalMinutesByDate(String date) async {
     final database = await _db.database;
     final result = await database.rawQuery(
@@ -48,6 +67,21 @@ class DailyLimitAdjustmentDao {
       DatabaseConstants.tableDailyLimitAdjustments,
       where: 'adjust_date = ? AND source = ? AND source_id = ?',
       whereArgs: [date, source.code, sourceId],
+      limit: 1,
+    );
+    return result.isNotEmpty;
+  }
+
+  /// 检查当日是否存在指定来源的记录（不限定 sourceId）
+  Future<bool> existsByDateAndSource(
+    String date,
+    LimitAdjustmentSource source,
+  ) async {
+    final database = await _db.database;
+    final result = await database.query(
+      DatabaseConstants.tableDailyLimitAdjustments,
+      where: 'adjust_date = ? AND source = ?',
+      whereArgs: [date, source.code],
       limit: 1,
     );
     return result.isNotEmpty;

@@ -289,6 +289,13 @@ class MonitorForegroundService : Service() {
             overlayManager.clearAllOverlays()  // 清除可能残留的旧原生 overlay
             val widgetManager = WidgetManager(overlayManager)
 
+            // 注入到 OverlayChannel，供 Flutter 通过 MethodChannel 触发 extendCountdown / couponExchangeFinished
+            OverlayChannel.instance?.let { oc ->
+                oc.widgetManager = widgetManager
+                oc.continuousUsageTracker = usageTracker
+                oc.overlayManager = overlayManager
+            }
+
             engine = EnforcementEngine(
                 repository = repository,
                 ruleEvaluator = ruleEvaluator,
@@ -314,9 +321,20 @@ class MonitorForegroundService : Service() {
             }
 
             // 家长入口回调 — 从倒计时widget点击🔒图标，显示自定义数字键盘
-            overlayManager.onParentEntryFromWidget = {
-                overlayManager.isPasswordInputActive = true
-                overlayManager.showPasswordKeypadPublic()
+            // 注：widget 上的🔒图标已移除（电量样式改造），此回调保留用于 lock overlay 的家长入口
+            // （lock overlay 上的"家长入口"文字链接走 switchToPasswordMode，不经过此回调）。
+            // 保留 showPasswordKeypadPublic 调用以兼容潜在的 debug broadcast 触发路径。
+
+            // Widget 单击回调 — 单击倒计时 widget 弹出原生兑换 overlay（不启动 MainActivity，受监控 app 保持前台）
+            overlayManager.onWidgetClicked = {
+                overlayManager.showExchangeOverlay()
+            }
+
+            // 兑换成功回调 — 原生 overlay 扣分+写记录成功后，延长倒计时
+            overlayManager.onExchangeConfirmed = { minutes ->
+                val seconds = minutes * 60L
+                widgetManager.extendCountdown(seconds)
+                usageTracker.extendCountdown(seconds)
             }
 
             // 家长密码验证成功回调 — 密码正确后关闭倒计时或锁定覆盖层

@@ -25,7 +25,7 @@ class Coupon {
   factory Coupon.fromMap(Map<String, dynamic> map) {
     return Coupon(
       id: map['id'] as int?,
-      type: CouponType.fromCode(map['type'] as String? ?? 'small'),
+      type: CouponType.fromCode(map['type'] as String? ?? 'custom'),
       durationMinutes: map['duration'] as int,
       source: CouponSource.fromCode(map['source'] as String? ?? 'earned'),
       status: CouponStatus.fromCode(map['status'] as String? ?? 'available'),
@@ -99,10 +99,10 @@ class Coupon {
 /// 加时券工厂
 class CouponFactory {
   /// 创建积分兑换的加时券
-  static Coupon createEarned(CouponType type) {
+  static Coupon createEarned(int durationMinutes) {
     return Coupon(
-      type: type,
-      durationMinutes: type.durationMinutes,
+      type: CouponType.custom,
+      durationMinutes: durationMinutes,
       source: CouponSource.earned,
       // 积分兑换的永久有效
       expiresAt: null,
@@ -112,7 +112,7 @@ class CouponFactory {
   /// 创建家长发放的加时券
   static Coupon createParentGiven(int durationMinutes) {
     return Coupon(
-      type: CouponType.small, // 类型不重要，用 durationMinutes 指定
+      type: CouponType.custom,
       durationMinutes: durationMinutes,
       source: CouponSource.parentGiven,
       // 家长发放的 7 天有效

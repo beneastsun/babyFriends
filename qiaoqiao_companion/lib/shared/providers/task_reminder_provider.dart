@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qiaoqiao_companion/core/database/app_database.dart';
 import 'package:qiaoqiao_companion/core/database/daos/daos.dart';
 import 'package:qiaoqiao_companion/shared/models/task_definition.dart';
+import 'package:qiaoqiao_companion/core/services/notification_service.dart';
 
 class TaskReminderState {
   final List<TaskDefinition> pendingReminders;
@@ -39,18 +40,39 @@ class TaskReminderNotifier extends StateNotifier<TaskReminderState> {
   Future<int> registerDailyReminders() async {
     final tasks = await _taskDefinitionDao.getEnabled();
     int count = 0;
+    final now = DateTime.now();
+    final notificationService = NotificationService();
 
     for (final task in tasks) {
-      if (task.reminderTime == null) continue;
+      if (task.reminderTime == null || task.id == null) continue;
 
-      // 检查今天是否已打卡完成
-      final today = _formatDate(DateTime.now());
-      if (task.id == null) continue;
-
+      final today = _formatDate(now);
       final checkins = await _checkCheckinCount(task.id!, today);
       if (checkins >= task.minDailyCount) continue; // 已完成，不提醒
 
-      // 注册提醒（实际通知调度在 UI 层通过 flutter_local_notifications 执行）
+      // 解析提醒时间
+      final timeParts = task.reminderTime!.split(':');
+      final hour = int.parse(timeParts[0]);
+      final minute = int.parse(timeParts[1]);
+      var scheduledTime = DateTime(now.year, now.month, now.day, hour, minute);
+
+      // 如果时间已过，按 repeatInterval 延迟到下一个有效时间
+      if (scheduledTime.isBefore(now) && task.reminderRepeatInterval > 0) {
+        while (scheduledTime.isBefore(now)) {
+          scheduledTime = scheduledTime.add(Duration(minutes: task.reminderRepeatInterval));
+        }
+      } else if (scheduledTime.isBefore(now)) {
+        continue; // 时间已过且不重复，跳过
+      }
+
+      // 通过 NotificationService 调度实际通知
+      await notificationService.scheduleTaskReminder(
+        taskId: task.id!,
+        taskName: task.name,
+        emoji: task.emoji,
+        scheduledTime: scheduledTime,
+        repeatIntervalMinutes: task.reminderRepeatInterval,
+      );
       count++;
     }
 
@@ -87,6 +109,7 @@ class TaskReminderNotifier extends StateNotifier<TaskReminderState> {
 
   /// 取消某个任务的当日提醒（打卡完成后调用）
   Future<void> cancelReminderForTask(int taskId) async {
+    await NotificationService().cancelReminder(taskId);
     final pending = state.pendingReminders.where((t) => t.id != taskId).toList();
     state = state.copyWith(pendingReminders: pending);
   }

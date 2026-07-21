@@ -11,9 +11,9 @@ import android.view.View
 /**
  * 圆形外环能量条 — 连续使用 widget 的视觉形态。
  *
- * - 外环：随 [progress]（0~1，已用比例）递增填充，颜色用 [energyBarColor] 平滑过渡（绿→黄）。
+ * - 外环：显示剩余比例（电池样式），弧度 = 360 * (1 - progress)，从满环递减到空环。颜色用 [energyBarColor] 平滑过渡（绿→黄）。
  * - ≤5 分钟阶段：由 WidgetManager 通过 [overrideColor] 传入色阶（黄/橙/红），优先于 energyBarColor。
- * - 中央内容由外部父布局添加（🐻 emoji + 可选 MM:SS 文字）。
+ * - 中央内容由外部父布局添加（百分比数字 + 可选 MM:SS 文字）。
  */
 class EnergyBarView @JvmOverloads constructor(
     context: Context,
@@ -55,8 +55,8 @@ class EnergyBarView @JvmOverloads constructor(
             rectF.set(padding, padding, width - padding, height - padding)
             // 背景环
             canvas.drawArc(rectF, 0f, 360f, false, bgRingPaint)
-            // 前景环（递增）
-            val sweep = 360f * progress
+            // 前景环（剩余比例，电池样式：满环→空环递减）
+            val sweep = 360f * (1f - progress)
             ringPaint.color = overrideColor ?: energyBarColor(progress)
             canvas.drawArc(rectF, -90f, sweep, false, ringPaint)
         } catch (e: Exception) {

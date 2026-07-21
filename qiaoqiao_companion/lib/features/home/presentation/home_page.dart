@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qiaoqiao_companion/core/theme/app_theme.dart';
+import 'package:qiaoqiao_companion/core/constants/database_constants.dart';
 import 'package:qiaoqiao_companion/core/services/avatar_service.dart';
 import 'package:qiaoqiao_companion/shared/models/app_usage_filter.dart';
 import 'package:qiaoqiao_companion/shared/models/daily_stats.dart';
@@ -12,6 +13,7 @@ import 'package:qiaoqiao_companion/features/home/presentation/widgets/daily_time
 import 'package:qiaoqiao_companion/features/report/domain/weekly_report.dart';
 import 'package:qiaoqiao_companion/features/report/domain/weekly_report_service.dart';
 import 'package:qiaoqiao_companion/shared/providers/task_provider.dart';
+import 'package:qiaoqiao_companion/shared/models/task_definition.dart';
 import 'package:qiaoqiao_companion/shared/providers/egg_provider.dart';
 import 'package:qiaoqiao_companion/shared/widgets/egg_character.dart';
 import 'package:qiaoqiao_companion/shared/widgets/egg_upgrade_overlay.dart';
@@ -21,6 +23,7 @@ import 'package:qiaoqiao_companion/shared/widgets/design_system/app_card.dart';
 import 'package:qiaoqiao_companion/shared/providers/theme_provider.dart';
 import 'package:qiaoqiao_companion/shared/widgets/design_system/app_button.dart';
 import 'package:qiaoqiao_companion/core/theme/app_solid_colors.dart';
+import 'package:qiaoqiao_companion/features/tasks/presentation/widgets/task_checkin_dialog.dart';
 
 /// 首页视图维度
 enum HomeViewDimension { day, week }
@@ -155,117 +158,386 @@ class _HomePageState extends ConsumerState<HomePage> {
     final eggState = ref.watch(eggProvider);
     final theme = Theme.of(context);
 
-    if (taskState.isLoading || taskState.tasks.isEmpty) {
-      return const SizedBox.shrink();
+    if (taskState.isLoading) {
+      return AppCard(
+        type: AppCardType.standard,
+        child: const Padding(
+          padding: EdgeInsets.all(32),
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      );
     }
 
-    return Card(
-      margin: const EdgeInsets.all(16),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('今日任务', style: theme.textTheme.titleMedium),
-                TextButton(
-                  onPressed: () => context.push(AppRoutes.tasks),
-                  child: const Text('全部任务'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            // 进度栏
-            Row(
-              children: [
-                EggCharacter(
-                  style: eggState.eggStyle,
-                  stage: eggState.stage,
-                  size: 60,
-                ),
-                const SizedBox(width: 12),
-                CircularProgressIndicator(
-                  value: taskState.completionRate,
-                  strokeWidth: 6,
-                ),
-                const SizedBox(width: 12),
-                Text('${taskState.todayCompletedCount}/${taskState.totalTaskCount} 已完成'),
-                const Spacer(),
-                Text('+${taskState.todayPoints} 积分'),
-              ],
-            ),
-            const SizedBox(height: 12),
-            // 任务卡片横向列表
-            SizedBox(
-              height: 80,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: taskState.tasks.length,
-                itemBuilder: (context, index) {
-                  final task = taskState.tasks[index];
-                  final isCompleted = taskState.isTaskCompleted(task);
-                  final checkinCount = taskState.getCheckinCount(task.id!);
+    if (taskState.tasks.isEmpty) {
+      return AppCard(
+        type: AppCardType.standard,
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              Icon(Icons.assignment_rounded, size: 48, color: theme.colorScheme.outline),
+              const SizedBox(height: 12),
+              Text('今日暂无任务', style: theme.textTheme.titleMedium),
+              const SizedBox(height: 4),
+              Text(
+                '请让爸爸妈妈在家长模式中添加任务',
+                style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
-                  return Container(
-                    width: 120,
-                    margin: const EdgeInsets.only(right: 8),
-                    child: Card(
-                      child: InkWell(
-                        onTap: isCompleted
-                            ? null
-                            : () async {
-                                final oldStage = ref.read(eggProvider).stage;
-                                await ref.read(taskProvider.notifier).checkin(task);
-                                await ref.read(eggProvider.notifier).refreshWeeklyProgress();
-                                final newStage = ref.read(eggProvider).stage;
-                                if (newStage > oldStage && context.mounted) {
-                                  final eggState = ref.read(eggProvider);
-                                  EggUpgradeOverlay.show(context, style: eggState.eggStyle, newStage: newStage);
-                                }
-                              },
-                        child: Padding(
-                          padding: const EdgeInsets.all(8),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(task.emoji, style: const TextStyle(fontSize: 24)),
-                              const SizedBox(height: 4),
-                              Text(
-                                task.name,
-                                style: theme.textTheme.bodySmall,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              Text(
-                                isCompleted
-                                    ? '✓'
-                                    : '$checkinCount/${task.minDailyCount}',
-                                style: TextStyle(
-                                  color: isCompleted
-                                      ? theme.colorScheme.primary
-                                      : theme.colorScheme.outline,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+    return AppCard(
+      type: AppCardType.standard,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 标题栏
+          Row(
+            children: [
+              Text('今日任务', style: AppTextStyles.heading3),
+              const Spacer(),
+              _buildActionButton(
+                icon: Icons.history_rounded,
+                label: '历史',
+                onTap: () => context.push('${AppRoutes.tasks}/history'),
+              ),
+              const SizedBox(width: 8),
+              _buildActionButton(
+                icon: Icons.chevron_right_rounded,
+                label: '全部',
+                onTap: () => context.push(AppRoutes.tasks),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // 进度条区域
+          _buildProgressSection(context, ref, taskState, eggState),
+          const SizedBox(height: 16),
+
+          // 任务网格（多行自适应，不再横向滚动）
+          _buildTaskGrid(context, ref, taskState, theme),
+          const SizedBox(height: 16),
+
+          // 底部操作栏
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => CouponExchangeDialog.show(context),
+                  icon: const Icon(Icons.card_giftcard_rounded, size: 18),
+                  label: const Text('兑换加时券'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(label, style: TextStyle(color: AppColors.primary, fontSize: 13)),
+              Icon(icon, size: 16, color: AppColors.primary),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProgressSection(BuildContext context, WidgetRef ref, TaskState taskState, dynamic eggState) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            AppColors.primary.withOpacity(0.08),
+            AppColors.primary.withOpacity(0.03),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          EggCharacter(
+            style: eggState.eggStyle,
+            stage: eggState.stage,
+            size: 56,
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      '${taskState.todayCompletedCount}/${taskState.totalTaskCount}',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.primary,
                       ),
                     ),
-                  );
-                },
+                    const SizedBox(width: 4),
+                    Text(
+                      '已完成',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textSecondaryLight,
+                      ),
+                    ),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.stars_rounded, size: 14, color: Colors.amber),
+                          const SizedBox(width: 4),
+                          Text(
+                            '+${taskState.todayPoints}',
+                            style: const TextStyle(
+                              color: Colors.amber,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: taskState.completionRate,
+                    minHeight: 8,
+                    backgroundColor: AppColors.primary.withOpacity(0.1),
+                    valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTaskGrid(BuildContext context, WidgetRef ref, TaskState taskState, ThemeData theme) {
+    // 每行显示4个任务，自动换行
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const double spacing = 10;
+        const int columns = 4;
+        final itemWidth = (constraints.maxWidth - spacing * (columns - 1)) / columns;
+
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: taskState.tasks.map((task) {
+            final isCompleted = taskState.isTaskCompleted(task);
+            final isExceeded = taskState.isTaskExceeded(task);
+            final checkinCount = taskState.getCheckinCount(task.id!);
+            final canCheckin = !isExceeded;
+
+            return SizedBox(
+              width: itemWidth,
+              child: _TaskGridItem(
+                task: task,
+                checkinCount: checkinCount,
+                isCompleted: isCompleted,
+                canCheckin: canCheckin,
+                onTap: canCheckin ? () => _handleTaskTap(context, ref, task, checkinCount) : null,
               ),
+            );
+          }).toList(),
+        );
+      },
+    );
+  }
+
+  Future<void> _handleTaskTap(BuildContext context, WidgetRef ref, TaskDefinition task, int currentCount) async {
+    // 显示打卡确认弹窗
+    final confirmed = await TaskCheckinDialog.show(
+      context,
+      task: task,
+      currentCount: currentCount,
+    );
+
+    if (confirmed != true || !context.mounted) return;
+
+    // 执行打卡
+    final oldStage = ref.read(eggProvider).stage;
+    final result = await ref.read(taskProvider.notifier).checkin(task);
+
+    if (!context.mounted) return;
+
+    if (result.success) {
+      // 显示成功提示
+      CheckinSuccessSnackBar.show(
+        context,
+        message: result.message,
+        points: result.pointsEarned,
+      );
+
+      // 检查蛋仔升级
+      await ref.read(eggProvider.notifier).refreshWeeklyProgress();
+      final newStage = ref.read(eggProvider).stage;
+      if (newStage > oldStage && context.mounted) {
+        final eggState = ref.read(eggProvider);
+        EggUpgradeOverlay.show(context, style: eggState.eggStyle, newStage: newStage);
+      }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result.message),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
+  }
+}
+
+/// 任务网格项
+class _TaskGridItem extends StatelessWidget {
+  final TaskDefinition task;
+  final int checkinCount;
+  final bool isCompleted;
+  final bool canCheckin;
+  final VoidCallback? onTap;
+
+  const _TaskGridItem({
+    required this.task,
+    required this.checkinCount,
+    required this.isCompleted,
+    required this.canCheckin,
+    this.onTap,
+  });
+
+  Color get _categoryColor => switch (task.category) {
+        TaskCategory.health => Colors.green,
+        TaskCategory.study => Colors.blue,
+        TaskCategory.chore => Colors.orange,
+        TaskCategory.discipline => Colors.purple,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final isDisabled = !canCheckin && isCompleted;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+          decoration: BoxDecoration(
+            color: isCompleted
+                ? _categoryColor.withOpacity(0.1)
+                : AppColors.surfaceLight,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isCompleted
+                  ? _categoryColor.withOpacity(0.3)
+                  : AppColors.dividerLight,
             ),
-            // 兑换按钮
-            const SizedBox(height: 8),
-            FilledButton.tonalIcon(
-              onPressed: () => CouponExchangeDialog.show(context),
-              icon: const Icon(Icons.card_giftcard),
-              label: const Text('兑换加时券'),
-            ),
-          ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 图标区域
+              Stack(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: isCompleted
+                          ? _categoryColor.withOpacity(0.15)
+                          : _categoryColor.withOpacity(0.08),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: Text(task.emoji, style: const TextStyle(fontSize: 22)),
+                    ),
+                  ),
+                  if (isCompleted)
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        width: 16,
+                        height: 16,
+                        decoration: BoxDecoration(
+                          color: _categoryColor,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 1.5),
+                        ),
+                        child: const Icon(Icons.check_rounded, size: 10, color: Colors.white),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              // 任务名称
+              Text(
+                task.name,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: isCompleted ? FontWeight.w600 : FontWeight.w500,
+                  color: isCompleted ? _categoryColor : AppColors.textPrimaryLight,
+                  decoration: isCompleted && !canCheckin ? TextDecoration.lineThrough : null,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 2),
+              // 进度
+              Text(
+                isCompleted ? '已完成' : '$checkinCount/${task.minDailyCount}次',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: isCompleted ? _categoryColor : AppColors.textSecondaryLight,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

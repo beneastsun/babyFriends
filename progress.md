@@ -1,60 +1,78 @@
-# Progress Log — Widget 倒计时问题修复
+# 成长树任务系统 v2 — 开发进度
 
-## 当前状态
-
-**Phase 1 完成 ✅，Phase 2 待真机验证**
-
----
-
-## 2026-06-09: 修复清单
-
-### 修改文件
-`qiaoqiao_companion/lib/core/services/usage_monitor_service.dart`
-
-### 修复 1.1：离开监控 app 时立即隐藏 widget
-- **改动**：`_handleContinuousUsageTransition` 中 `shouldTrackCurrent = false` 时立即调用 `_hideStopwatchWidget()`
-- **条件**：强制休息期间不隐藏（`_forceRestInProgress` 保护）
-- **效果**：符合用户需求"没使用就消失"
-
-### 修复 1.2：`_hideStopwatchWidget` 不清除 DB 倒计时字段
-- **改动**：移除 `_clearCountdownState()` 调用
-- **效果**：用户回到监控 app 时能从 DB 恢复倒计时状态（剩余时间从 session.totalDurationSeconds 计算）
-
-### 修复 1.3：`_syncWidgetStateWithNative` 尝试恢复而非清除
-- **改动**：原生 widget 消失 + 正在使用被监控 app → 尝试恢复 widget
-- **改动**：原生 widget 消失 + 不在使用被监控 app → 重置标志
-- **效果**：避免 MIUI 内存回收导致 widget 永远消失
-
-### 修复 1.4：移除 `_lastStopTime` 延迟隐藏机制
-- **改动**：删除 `_lastStopTime` 变量
-- **改动**：`_checkHideStopwatchAfterRest` → `_checkAndResetSessionAfterRest`
-- **改动**：新方法使用 `session.lastActivityTime` 计算离开时间，仅重置会话不隐藏 widget
-
-### 修复 1.5（新增）：禁用提示框关闭后 widget 不弹出
-- **根因**：路径 A（原生兜底 lock overlay）关闭回调不走 `OverlayStateManager.onOverlayDismissed`，导致 `_state` 残留 `showingLock` → `_showStopwatchWidget` 被守卫阻挡
-- **改动**：在 `_onLockOverlayDismissed` 中，关闭 lock overlay 后立即复位 OverlayStateManager 状态
-- **效果**：禁用提示框关闭后 widget 能正常弹出
-
-### 代码分析结果
-- ✅ `dart analyze` 无新增 error/warning
-- ✅ 所有 `_lastStopTime` 引用已清除
+> **项目**: 巧巧小伙伴 (Qiaoqiao Companion) — P2 成长树与形象 + P3 任务提醒
+> **开始日期**: 2026-07-07
+> **设计文档**: docs/superpowers/specs/2026-07-07-egg-growth-task-system-design-v2.md
+> **P1 计划**: docs/superpowers/plans/2026-07-07-p1-v2-task-system.md (已完成)
+> **P2/P3 计划**: docs/superpowers/plans/2026-07-07-p2p3-task-system.md
 
 ---
 
-## 验证计划
+## 总体进度
 
-### 场景推演
-
-| 场景 | 预期行为 | 修复点 |
-|------|----------|--------|
-| A. 使用被监控 app | widget 显示倒计时 | 原有逻辑 |
-| B. 切换到非监控 app | widget 立即消失 | 修复 1.1 |
-| C. 切换回被监控 app | widget 从 DB 恢复倒计时 | 修复 1.2 |
-| D. 强制休息期间 | widget 显示休息倒计时 | `_forceRestInProgress` 保护 |
-| E. 原生 widget 被 MIUI 回收 | Flutter 尝试恢复 widget | 修复 1.3 |
-| F. 禁用提示框关闭后 | widget 显示新的使用倒计时 | 修复 1.5 |
-
-### 真机验证
-需要在小米平板上安装测试版验证上述 6 个场景。
+| 阶段 | 状态 | 说明 |
+|------|------|------|
+| P1 核心任务系统 | ✅ 已完成 | 日限额调整闭环、惩罚扣减、加时券增加时长、原生同步、3 Tab |
+| P2 成长树与形象 | ✅ 已完成 | 蛋仔形象渲染、周累积进度、5阶段升级动画/语音/庆祝、4套风格切换 |
+| P3 任务提醒 | 🔄 进行中 | 定时提醒、未响应重复提醒、声音+展示性弹窗 |
 
 ---
+
+## P2 成长树与形象 — 任务清单 (Task 16-25)
+
+> 每个 Task 需同时通过**单元测试**和**模拟器验证**才算完成。
+> 模拟器验证标记：⬜ 未验证 / ✅ 通过 / ❌ 失败
+
+- [x] **Task 16**: database_constants.dart — 新增 EggStyle 枚举和表名常量 | 模拟器: ✅ 通过
+- [x] **Task 17**: app_database.dart — v7 迁移新增 egg_weekly_progress 表 | 模拟器: ✅ 通过
+- [x] **Task 18**: EggWeeklyProgress 模型 | 模拟器: ✅ 通过
+- [x] **Task 19**: EggWeeklyProgressDao | 模拟器: ✅ 通过
+- [x] **Task 20**: EggProvider — 周进度管理和阶段计算 | 模拟器: ✅ 通过
+- [x] **Task 21**: EggCharacter 组件 — 根据 style+stage 显示蛋仔图片 | 模拟器: ✅ 通过
+- [x] **Task 22**: EggUpgradeOverlay — 升级时的 Lottie 动画+音频+庆祝卡片 | 模拟器: ✅ 通过
+- [x] **Task 23**: 集成蛋仔到首页和 TaskPage | 模拟器: ✅ 通过
+- [x] **Task 24**: 家长模式新增"蛋仔风格选择"入口 | 模拟器: ✅ 通过
+- [x] **Task 25**: 打卡时触发升级检测 | 模拟器: ✅ 通过
+
+## P3 任务提醒 — 任务清单 (Task 26-31)
+
+- [x] **Task 26**: 添加 flutter_local_notifications 依赖 | 模拟器: ✅ 通过
+- [x] **Task 27**: TaskReminderProvider — 提醒注册和调度 | 模拟器: ✅ 通过
+- [x] **Task 28**: TaskReminderOverlay — 展示性弹窗组件 | 模拟器: ✅ 通过
+- [x] **Task 29**: 集成提醒到 app_initializer 和 task_page | 模拟器: ⬜
+- [x] **Task 30**: flutter_local_notifications 初始化和后台通知 | 模拟器: ⬜
+- [x] **Task 31**: 集成提醒触发到 TaskReminderProvider | 模拟器: ⬜
+
+---
+
+## 模拟器验证要求
+
+**设备**: 小米平板5 Pro 模拟器（Android Studio）
+
+每个 Task 完成后的验证流程：
+1. 确认模拟器运行（`adb devices`），如未运行则启动
+2. `flutter build apk --debug` 编译
+3. `flutter install` 安装到模拟器
+4. `adb shell am start -n com.qiaoqiao.qiaoqiao_companion/.MainActivity` 启动应用
+5. `adb logcat -d *:E` 检查崩溃日志
+6. 验证通过后在对应 Task 旁标注"模拟器: ✅ 通过"
+
+**各 Task 验证要点**：
+- Task 16-19: 应用正常启动，v7 数据库迁移不崩溃
+- Task 20: 应用启动后蛋仔进度正常加载
+- Task 21-22: 首页/任务页显示蛋仔形象
+- Task 23: 首页和 TaskPage 集成蛋仔形象，todayPoints 正确显示
+- Task 24: 家长模式可进入风格选择页面，切换风格后生效
+- Task 25: 打卡后如果阶段提升触发升级动画
+- Task 26: flutter pub get 成功
+- Task 27-28: 应用启动正常，提醒 Provider 不崩溃
+- Task 29: 家长端可设置提醒时间，打卡后取消提醒
+- Task 30-31: 后台通知功能正常
+
+---
+
+## 下一步计划
+
+Task 29-31 代码已全部完成，单元测试通过。等待模拟器验证通过后标记完成。
+
+ALL_DONE

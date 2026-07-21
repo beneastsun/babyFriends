@@ -65,6 +65,11 @@ class MainActivity : FlutterActivity() {
         registerReceiver(screenReceiver, filter)
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+    }
+
     override fun onStart() {
         super.onStart()
     }

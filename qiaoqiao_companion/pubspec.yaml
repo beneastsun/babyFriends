@@ -50,6 +50,7 @@ dependencies:
 
   # 本地通知
   flutter_local_notifications: ^17.2.2
+  timezone: ^0.9.4
 
 dev_dependencies:
   flutter_test:
@@ -70,6 +71,11 @@ flutter:
     - assets/audio/reminder.mp3
     - assets/animations/
     - assets/sounds/
+
+hooks:
+  user_defines:
+    sqlite3:
+      source: system
 
 flutter_launcher_icons:
   android: true
